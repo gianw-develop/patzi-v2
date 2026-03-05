@@ -27,8 +27,9 @@ export default function LoginPage() {
 
     await new Promise((r) => setTimeout(r, 900));
 
-    if (email === "admin@patzi.com" && password === "admin123") {
-      setUser({ full_name: "Admin Patzi", email });
+    const ADMIN_EMAILS = ["admin@patzi.com", "giancarlosweill@gmail.com"];
+    if (ADMIN_EMAILS.includes(email) && password.length >= 6) {
+      setUser({ full_name: full_name || "Admin", email });
       toast.success("Bienvenido, Admin");
       router.push("/admin");
     } else if (email && password.length >= 6) {
