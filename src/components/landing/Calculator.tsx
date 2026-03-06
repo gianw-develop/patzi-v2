@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, ArrowDownUp, Zap, ShieldCheck } from "lucide-react";
-import { calculateTransfer, CURRENCY_INFO } from "@/lib/exchange-rates";
+import { CURRENCY_INFO } from "@/lib/exchange-rates";
+import { useRatesStore, calcTransferLive } from "@/lib/rates-store";
 import type { Currency } from "@/types";
 
 const SEND_CURRENCIES: Currency[] = ["EUR", "USD"];
@@ -14,6 +15,7 @@ export default function Calculator() {
   const [sendAmount, setSendAmount] = useState("200");
   const [sendCurrency, setSendCurrency] = useState<Currency>("EUR");
   const [receiveCurrency, setReceiveCurrency] = useState<Currency>("PEN");
+  const { markup, liveRates, setLiveRates } = useRatesStore();
   const [result, setResult] = useState<{
     receiveAmount: number;
     exchangeRate: number;
@@ -22,14 +24,24 @@ export default function Calculator() {
   } | null>(null);
 
   useEffect(() => {
+    if (Object.keys(liveRates).length === 0) {
+      fetch("/api/rates")
+        .then((r) => r.json())
+        .then((d) => setLiveRates(d.rates, d.updated_at, d.source))
+        .catch(() => {});
+    }
+  }, [liveRates, setLiveRates]);
+
+  useEffect(() => {
     const amount = parseFloat(sendAmount);
     if (!isNaN(amount) && amount > 0 && sendCurrency !== receiveCurrency) {
-      const calc = calculateTransfer(sendCurrency, receiveCurrency, amount, "express");
+      const pair = `${sendCurrency}-${receiveCurrency}`;
+      const calc = calcTransferLive(pair, amount, liveRates, markup);
       setResult(calc);
     } else {
       setResult(null);
     }
-  }, [sendAmount, sendCurrency, receiveCurrency]);
+  }, [sendAmount, sendCurrency, receiveCurrency, liveRates, markup]);
 
   const handleSendCurrencyChange = (c: Currency) => {
     setSendCurrency(c);

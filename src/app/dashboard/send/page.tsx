@@ -11,7 +11,8 @@ import {
   CheckCircle2, Clock, ArrowRight, Building2,
   Smartphone, User, ChevronRight, AlertCircle,
 } from "lucide-react";
-import { calculateTransfer, CURRENCY_INFO } from "@/lib/exchange-rates";
+import { CURRENCY_INFO } from "@/lib/exchange-rates";
+import { useRatesStore, calcTransferLive } from "@/lib/rates-store";
 import { MOCK_WALLETS, MOCK_BENEFICIARIES } from "@/lib/mock-data";
 import { useTransferStore } from "@/lib/transfer-store";
 import type { Currency, DeliveryMethod } from "@/types";
@@ -53,7 +54,7 @@ export default function SendPage() {
   const [sendCurrency, setSendCurrency] = useState<Currency>("EUR");
   const [receiveCurrency, setReceiveCurrency] = useState<Currency>("PEN");
   const [sendAmount, setSendAmount] = useState("200");
-  const speed = "express" as const;
+  const { markup, liveRates, setLiveRates } = useRatesStore();
   const [deliveryOption, setDeliveryOption] = useState<DeliveryOption>(DELIVERY_BY_CURRENCY["PEN"][0]);
   const [useExisting, setUseExisting] = useState(true);
   const [selectedBeneficiary, setSelectedBeneficiary] = useState(MOCK_BENEFICIARIES[0]?.id ?? "");
@@ -61,6 +62,15 @@ export default function SendPage() {
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const addTransfer = useTransferStore((s) => s.addTransfer);
+
+  useEffect(() => {
+    if (Object.keys(liveRates).length === 0) {
+      fetch("/api/rates")
+        .then((r) => r.json())
+        .then((d) => setLiveRates(d.rates, d.updated_at, d.source))
+        .catch(() => {});
+    }
+  }, [liveRates, setLiveRates]);
   const doneRef = React.useRef(`PTZ-2026-${Math.floor(Math.random() * 9000 + 1000)}`);
 
   const [result, setResult] = useState<{
@@ -70,9 +80,10 @@ export default function SendPage() {
   useEffect(() => {
     const amt = parseFloat(sendAmount);
     if (!isNaN(amt) && amt > 0 && sendCurrency !== receiveCurrency) {
-      setResult(calculateTransfer(sendCurrency, receiveCurrency, amt, speed));
+      const pair = `${sendCurrency}-${receiveCurrency}`;
+      setResult(calcTransferLive(pair, amt, liveRates, markup));
     } else setResult(null);
-  }, [sendAmount, sendCurrency, receiveCurrency]);
+  }, [sendAmount, sendCurrency, receiveCurrency, liveRates, markup]);
 
   const wallets = MOCK_WALLETS;
   const currentWallet = wallets.find((w) => w.currency === (sendCurrency as "EUR" | "USD"));
@@ -105,7 +116,7 @@ export default function SendPage() {
       total_charged: result.totalCharged,
       delivery_method: deliveryOption.value,
       delivery_app: deliveryOption.appName,
-      speed: speed,
+      speed: "express",
       status: "pending",
       status_history: [{ status: "pending", timestamp: new Date().toISOString() }],
       created_at: new Date().toISOString(),
