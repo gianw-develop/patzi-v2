@@ -62,7 +62,6 @@ export default function AdminAccountsPage() {
 
   const handleSave = () => {
     if (!form.account_holder.trim()) { toast.error("El titular es obligatorio"); return; }
-    if (form.method_type === "bank" && !form.iban_account?.trim()) { toast.error("El número de cuenta es obligatorio"); return; }
     if (form.method_type === "mobile" && form.method_name !== "Zelle" && !form.phone?.trim()) { toast.error("El teléfono es obligatorio"); return; }
     if (form.method_name === "Zelle" && !form.phone?.trim() && !form.email?.trim()) { toast.error("Introduce teléfono o email de Zelle"); return; }
 
@@ -245,11 +244,11 @@ export default function AdminAccountsPage() {
             {form.method_type === "bank" && (
               <>
                 <div>
-                  <Label>Banco</Label>
+                  <Label>Banco <span className="text-slate-400 font-normal">(opcional)</span></Label>
                   <Input value={form.bank_name ?? ""} onChange={(e) => updateForm("bank_name", e.target.value)} className="mt-1.5 h-10" placeholder="CaixaBank, BCP, Bank of America..." />
                 </div>
                 <div>
-                  <Label>IBAN / Número de cuenta</Label>
+                  <Label>IBAN / Número de cuenta <span className="text-slate-400 font-normal">(opcional)</span></Label>
                   <Input value={form.iban_account ?? ""} onChange={(e) => updateForm("iban_account", e.target.value)} className="mt-1.5 h-10 font-mono" placeholder="ES12 3456 7890 1234 5678 9012" />
                 </div>
               </>
@@ -281,7 +280,7 @@ export default function AdminAccountsPage() {
                 value={form.instructions ?? ""}
                 onChange={(e) => updateForm("instructions", e.target.value)}
                 className="mt-1.5 w-full min-h-[80px] px-3 py-2 text-sm border border-input rounded-md bg-background resize-none focus-visible:outline-none focus-visible:ring-[2px] focus-visible:ring-ring/40"
-                placeholder="Indica el concepto a usar, datos adicionales..."
+                placeholder="Ej: Indica tu nombre completo y la referencia de tu pedido en el concepto del pago. Una vez realizado, adjunta el comprobante en la plataforma para verificar tu transferencia."
               />
             </div>
 
