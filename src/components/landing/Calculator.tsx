@@ -15,7 +15,7 @@ export default function Calculator() {
   const [sendAmount, setSendAmount] = useState("200");
   const [sendCurrency, setSendCurrency] = useState<Currency>("EUR");
   const [receiveCurrency, setReceiveCurrency] = useState<Currency>("PEN");
-  const { markup, liveRates, setLiveRates } = useRatesStore();
+  const { markups, liveRates, setLiveRates } = useRatesStore();
   const [result, setResult] = useState<{
     receiveAmount: number;
     exchangeRate: number;
@@ -36,12 +36,12 @@ export default function Calculator() {
     const amount = parseFloat(sendAmount);
     if (!isNaN(amount) && amount > 0 && sendCurrency !== receiveCurrency) {
       const pair = `${sendCurrency}-${receiveCurrency}`;
-      const calc = calcTransferLive(pair, amount, liveRates, markup);
+      const calc = calcTransferLive(pair, amount, liveRates, markups);
       setResult(calc);
     } else {
       setResult(null);
     }
-  }, [sendAmount, sendCurrency, receiveCurrency, liveRates, markup]);
+  }, [sendAmount, sendCurrency, receiveCurrency, liveRates, markups]);
 
   const handleSendCurrencyChange = (c: Currency) => {
     setSendCurrency(c);

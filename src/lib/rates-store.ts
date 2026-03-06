@@ -1,9 +1,21 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+export const PAIRS = ["EUR-PEN", "EUR-VES", "EUR-USD", "USD-PEN", "USD-VES", "USD-EUR"] as const;
+export type Pair = (typeof PAIRS)[number];
+
+export const DEFAULT_MARKUPS: Record<Pair, number> = {
+  "EUR-PEN": 3,
+  "EUR-VES": 8,
+  "EUR-USD": 1,
+  "USD-PEN": 3,
+  "USD-VES": 8,
+  "USD-EUR": 1,
+};
+
 interface RatesState {
-  markup: number;
-  setMarkup: (v: number) => void;
+  markups: Record<Pair, number>;
+  setMarkup: (pair: Pair, v: number) => void;
   liveRates: Record<string, number>;
   lastUpdated: string | null;
   source: string | null;
@@ -13,8 +25,9 @@ interface RatesState {
 export const useRatesStore = create<RatesState>()(
   persist(
     (set) => ({
-      markup: 2,
-      setMarkup: (v) => set({ markup: v }),
+      markups: { ...DEFAULT_MARKUPS },
+      setMarkup: (pair, v) =>
+        set((s) => ({ markups: { ...s.markups, [pair]: v } })),
       liveRates: {},
       lastUpdated: null,
       source: null,
@@ -23,7 +36,7 @@ export const useRatesStore = create<RatesState>()(
     }),
     {
       name: "patzi-rates",
-      partialize: (s) => ({ markup: s.markup }),
+      partialize: (s) => ({ markups: s.markups }),
     }
   )
 );
@@ -31,20 +44,21 @@ export const useRatesStore = create<RatesState>()(
 export function getEffectiveRate(
   pair: string,
   liveRates: Record<string, number>,
-  markup: number
+  markups: Record<string, number>
 ): number | null {
   const base = liveRates[pair];
   if (!base) return null;
-  return base * (1 - markup / 100);
+  const m = markups[pair] ?? 0;
+  return base * (1 - m / 100);
 }
 
 export function calcTransferLive(
   pair: string,
   sendAmount: number,
   liveRates: Record<string, number>,
-  markup: number
+  markups: Record<string, number>
 ): { receiveAmount: number; exchangeRate: number; fee: number; totalCharged: number } | null {
-  const effective = getEffectiveRate(pair, liveRates, markup);
+  const effective = getEffectiveRate(pair, liveRates, markups);
   if (!effective || sendAmount <= 0) return null;
   return {
     receiveAmount: sendAmount * effective,

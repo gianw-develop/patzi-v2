@@ -54,7 +54,7 @@ export default function SendPage() {
   const [sendCurrency, setSendCurrency] = useState<Currency>("EUR");
   const [receiveCurrency, setReceiveCurrency] = useState<Currency>("PEN");
   const [sendAmount, setSendAmount] = useState("200");
-  const { markup, liveRates, setLiveRates } = useRatesStore();
+  const { markups, liveRates, setLiveRates } = useRatesStore();
   const [deliveryOption, setDeliveryOption] = useState<DeliveryOption>(DELIVERY_BY_CURRENCY["PEN"][0]);
   const [useExisting, setUseExisting] = useState(true);
   const [selectedBeneficiary, setSelectedBeneficiary] = useState(MOCK_BENEFICIARIES[0]?.id ?? "");
@@ -81,9 +81,9 @@ export default function SendPage() {
     const amt = parseFloat(sendAmount);
     if (!isNaN(amt) && amt > 0 && sendCurrency !== receiveCurrency) {
       const pair = `${sendCurrency}-${receiveCurrency}`;
-      setResult(calcTransferLive(pair, amt, liveRates, markup));
+      setResult(calcTransferLive(pair, amt, liveRates, markups));
     } else setResult(null);
-  }, [sendAmount, sendCurrency, receiveCurrency, liveRates, markup]);
+  }, [sendAmount, sendCurrency, receiveCurrency, liveRates, markups]);
 
   const wallets = MOCK_WALLETS;
   const currentWallet = wallets.find((w) => w.currency === (sendCurrency as "EUR" | "USD"));
