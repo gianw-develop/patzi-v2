@@ -17,13 +17,15 @@ export default function Navbar() {
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center gap-2">
             {logoUrl ? (
-              <Image src={logoUrl} alt="logo" width={32} height={32} className="rounded-lg object-cover" />
+              <Image src={logoUrl} alt="logo" width={120} height={40} className="object-contain max-h-10" />
             ) : (
-              <div className="w-8 h-8 bg-blue-900 rounded-lg flex items-center justify-center">
-                <Zap className="w-5 h-5 text-emerald-400" />
-              </div>
+              <>
+                <div className="w-8 h-8 bg-blue-900 rounded-lg flex items-center justify-center">
+                  <Zap className="w-5 h-5 text-emerald-400" />
+                </div>
+                <span className="text-xl font-bold text-blue-900">{platformName || "Patzi"}</span>
+              </>
             )}
-            <span className="text-xl font-bold text-blue-900">{platformName || "Patzi"}</span>
           </Link>
 
           <div className="hidden md:flex items-center gap-8">
