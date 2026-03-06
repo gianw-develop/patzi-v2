@@ -27,7 +27,7 @@ export default function AdminRatesPage() {
 
   const handleSavePair = async (pair: Pair) => {
     const v = parseFloat(inputs[pair]);
-    if (isNaN(v) || v < 0 || v > 50) { toast.error("Introduce un margen entre 0% y 50%"); return; }
+    if (isNaN(v) || v < -50 || v > 50) { toast.error("Introduce un margen entre -50% y 50%"); return; }
     setSaving((s) => ({ ...s, [pair]: true }));
     await new Promise((r) => setTimeout(r, 300));
     setMarkup(pair, v);
@@ -115,7 +115,7 @@ export default function AdminRatesPage() {
                         value={inputs[pair] ?? ""}
                         onChange={(e) => setInputs((s) => ({ ...s, [pair]: e.target.value }))}
                         className="h-9 pr-7 font-semibold"
-                        step="0.1" min="0" max="50"
+                        step="0.1" min="-50" max="50"
                         placeholder="0"
                       />
                       <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">%</span>
