@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,9 +11,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Zap, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useUserStore } from "@/lib/user-store";
+import { useBrandStore } from "@/lib/brand-store";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+  const { logoUrl, platformName } = useBrandStore();
+  useEffect(() => setMounted(true), []);
+  const effectiveLogo = mounted ? logoUrl : null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -50,10 +56,16 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2 mb-6">
-            <div className="w-10 h-10 bg-blue-800 border border-blue-600 rounded-xl flex items-center justify-center">
-              <Zap className="w-6 h-6 text-emerald-400" />
-            </div>
-            <span className="text-2xl font-bold text-white">Patzi</span>
+            {effectiveLogo ? (
+              <Image src={effectiveLogo} alt="logo" width={140} height={48} className="object-contain max-h-12" />
+            ) : (
+              <>
+                <div className="w-10 h-10 bg-blue-800 border border-blue-600 rounded-xl flex items-center justify-center">
+                  <Zap className="w-6 h-6 text-emerald-400" />
+                </div>
+                <span className="text-2xl font-bold text-white">{mounted ? (platformName || "Patzi") : "Patzi"}</span>
+              </>
+            )}
           </Link>
         </div>
 
