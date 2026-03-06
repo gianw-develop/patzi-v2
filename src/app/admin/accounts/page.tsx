@@ -35,7 +35,7 @@ const MOBILE_METHODS: Record<Currency, string[]> = {
 const EMPTY_FORM: Omit<PaymentAccount, "id"> = {
   currency: "EUR", method_type: "bank", method_name: "Transferencia bancaria",
   account_holder: "", bank_name: "", iban_account: "", phone: "", email: "",
-  instructions: "", for_deposits: true, for_payouts: true, is_active: true,
+  instructions: "Solo se aceptan depósitos de titulares de cuenta.", for_deposits: true, for_payouts: true, is_active: true,
 };
 
 export default function AdminAccountsPage() {
