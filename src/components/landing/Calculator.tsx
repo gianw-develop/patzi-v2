@@ -12,7 +12,7 @@ const SEND_CURRENCIES: Currency[] = ["EUR", "USD"];
 const RECEIVE_CURRENCIES: Currency[] = ["PEN", "VES", "USD", "EUR"];
 
 export default function Calculator() {
-  const [sendAmount, setSendAmount] = useState("200");
+  const [sendAmount, setSendAmount] = useState("100");
   const [sendCurrency, setSendCurrency] = useState<Currency>("EUR");
   const [receiveCurrency, setReceiveCurrency] = useState<Currency>("PEN");
   const { markups, liveRates, setLiveRates } = useRatesStore();
