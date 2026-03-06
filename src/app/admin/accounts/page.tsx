@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Header from "@/components/dashboard/Header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,27 +13,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Plus, Edit2, Trash2, Building2, Smartphone, CheckCircle2,
-  AlertCircle, CreditCard, Copy, Eye, EyeOff,
+  AlertCircle, Copy, Eye, EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
-
-type Currency = "EUR" | "USD" | "PEN" | "VES";
-type MethodType = "bank" | "mobile";
-
-interface PaymentAccount {
-  id: string;
-  currency: Currency;
-  method_type: MethodType;
-  method_name: string;
-  account_holder: string;
-  bank_name?: string;
-  iban_account?: string;
-  phone?: string;
-  instructions?: string;
-  for_deposits: boolean;
-  for_payouts: boolean;
-  is_active: boolean;
-}
+import { useAccountsStore, type PaymentAccount, type AccountCurrency as Currency, type MethodType } from "@/lib/accounts-store";
 
 const CURRENCY_INFO: Record<Currency, { flag: string; symbol: string; name: string }> = {
   EUR: { flag: "🇪🇺", symbol: "€", name: "Euro" },
@@ -49,75 +32,14 @@ const MOBILE_METHODS: Record<Currency, string[]> = {
   VES: ["Pagomóvil"],
 };
 
-const INITIAL_ACCOUNTS: PaymentAccount[] = [
-  {
-    id: "acc1", currency: "EUR", method_type: "bank", method_name: "Transferencia bancaria",
-    account_holder: "Patzi Financial S.L.", bank_name: "CaixaBank",
-    iban_account: "ES12 3456 7890 1234 5678 9012",
-    instructions: "Indica tu nombre completo y referencia de la transferencia en el concepto.",
-    for_deposits: true, for_payouts: true, is_active: true,
-  },
-  {
-    id: "acc2", currency: "EUR", method_type: "mobile", method_name: "Bizum",
-    account_holder: "Patzi Financial S.L.", phone: "+34 612 345 678",
-    instructions: "Envía el Bizum con tu nombre y referencia en el concepto.",
-    for_deposits: true, for_payouts: true, is_active: true,
-  },
-  {
-    id: "acc3", currency: "USD", method_type: "bank", method_name: "Transferencia bancaria",
-    account_holder: "Patzi Financial LLC", bank_name: "Bank of America",
-    iban_account: "021000322 · 1234567890",
-    instructions: "Include your full name and transfer reference in the memo field.",
-    for_deposits: true, for_payouts: true, is_active: true,
-  },
-  {
-    id: "acc4", currency: "USD", method_type: "mobile", method_name: "Zelle",
-    account_holder: "Patzi Financial LLC", phone: "+1 305 456 7890",
-    instructions: "Send via Zelle to the registered phone. Include your name and reference.",
-    for_deposits: true, for_payouts: true, is_active: true,
-  },
-  {
-    id: "acc5", currency: "PEN", method_type: "bank", method_name: "Transferencia bancaria",
-    account_holder: "Patzi Perú S.A.C.", bank_name: "BCP",
-    iban_account: "191-12345678-0-90",
-    instructions: "Indica tu nombre completo y el código de referencia al realizar el depósito.",
-    for_deposits: false, for_payouts: true, is_active: true,
-  },
-  {
-    id: "acc6", currency: "PEN", method_type: "mobile", method_name: "Yape",
-    account_holder: "Patzi Perú S.A.C.", phone: "+51 987 654 321",
-    instructions: "Realiza el Yape con el monto exacto. Incluye tu nombre en el mensaje.",
-    for_deposits: false, for_payouts: true, is_active: true,
-  },
-  {
-    id: "acc7", currency: "PEN", method_type: "mobile", method_name: "Plin",
-    account_holder: "Patzi Perú S.A.C.", phone: "+51 987 654 321",
-    instructions: "Plin disponible a través del mismo número. Indica referencia en el concepto.",
-    for_deposits: false, for_payouts: true, is_active: false,
-  },
-  {
-    id: "acc8", currency: "VES", method_type: "bank", method_name: "Transferencia bancaria",
-    account_holder: "Patzi Venezuela C.A.", bank_name: "Banco de Venezuela",
-    iban_account: "0102-0000-00-0000000001",
-    instructions: "Transferencia en bolívares. Indicar nombre y referencia en el concepto.",
-    for_deposits: false, for_payouts: true, is_active: true,
-  },
-  {
-    id: "acc9", currency: "VES", method_type: "mobile", method_name: "Pagomóvil",
-    account_holder: "Patzi Venezuela C.A.", phone: "+58 414 123 4567",
-    instructions: "Pago Móvil al CI/RIF registrado. Banco: Banco de Venezuela.",
-    for_deposits: false, for_payouts: true, is_active: true,
-  },
-];
-
 const EMPTY_FORM: Omit<PaymentAccount, "id"> = {
   currency: "EUR", method_type: "bank", method_name: "Transferencia bancaria",
-  account_holder: "", bank_name: "", iban_account: "", phone: "",
+  account_holder: "", bank_name: "", iban_account: "", phone: "", email: "",
   instructions: "", for_deposits: true, for_payouts: true, is_active: true,
 };
 
 export default function AdminAccountsPage() {
-  const [accounts, setAccounts] = useState<PaymentAccount[]>(INITIAL_ACCOUNTS);
+  const { accounts, addAccount, updateAccount, deleteAccount, toggleActive } = useAccountsStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<PaymentAccount | null>(null);
   const [form, setForm] = useState<Omit<PaymentAccount, "id">>(EMPTY_FORM);
@@ -141,25 +63,22 @@ export default function AdminAccountsPage() {
   const handleSave = () => {
     if (!form.account_holder.trim()) { toast.error("El titular es obligatorio"); return; }
     if (form.method_type === "bank" && !form.iban_account?.trim()) { toast.error("El número de cuenta es obligatorio"); return; }
-    if (form.method_type === "mobile" && !form.phone?.trim()) { toast.error("El teléfono es obligatorio"); return; }
+    if (form.method_type === "mobile" && form.method_name !== "Zelle" && !form.phone?.trim()) { toast.error("El teléfono es obligatorio"); return; }
+    if (form.method_name === "Zelle" && !form.phone?.trim() && !form.email?.trim()) { toast.error("Introduce teléfono o email de Zelle"); return; }
 
     if (editing) {
-      setAccounts((p) => p.map((a) => a.id === editing.id ? { ...form, id: editing.id } : a));
+      updateAccount(editing.id, form);
       toast.success("Cuenta actualizada");
     } else {
-      setAccounts((p) => [...p, { ...form, id: crypto.randomUUID() }]);
+      addAccount({ ...form, id: crypto.randomUUID() });
       toast.success("Cuenta añadida");
     }
     setDialogOpen(false);
   };
 
   const handleDelete = (id: string) => {
-    setAccounts((p) => p.filter((a) => a.id !== id));
+    deleteAccount(id);
     toast.success("Cuenta eliminada");
-  };
-
-  const toggleActive = (id: string) => {
-    setAccounts((p) => p.map((a) => a.id === id ? { ...a, is_active: !a.is_active } : a));
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -336,11 +255,24 @@ export default function AdminAccountsPage() {
               </>
             )}
 
-            {form.method_type === "mobile" && (
+            {form.method_type === "mobile" && form.method_name !== "Zelle" && (
               <div>
                 <Label>Teléfono registrado</Label>
                 <Input value={form.phone ?? ""} onChange={(e) => updateForm("phone", e.target.value)} className="mt-1.5 h-10" placeholder="+34 612 345 678" type="tel" />
               </div>
+            )}
+
+            {form.method_name === "Zelle" && (
+              <>
+                <div>
+                  <Label>Teléfono Zelle <span className="text-slate-400 font-normal">(opcional si hay email)</span></Label>
+                  <Input value={form.phone ?? ""} onChange={(e) => updateForm("phone", e.target.value)} className="mt-1.5 h-10" placeholder="+1 305 456 7890" type="tel" />
+                </div>
+                <div>
+                  <Label>Email Zelle <span className="text-slate-400 font-normal">(opcional si hay teléfono)</span></Label>
+                  <Input value={form.email ?? ""} onChange={(e) => updateForm("email", e.target.value)} className="mt-1.5 h-10" placeholder="pagos@patzi.com" type="email" />
+                </div>
+              </>
             )}
 
             <div>

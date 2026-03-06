@@ -58,7 +58,7 @@ export default function SendPage() {
   const [deliveryOption, setDeliveryOption] = useState<DeliveryOption>(DELIVERY_BY_CURRENCY["PEN"][0]);
   const [useExisting, setUseExisting] = useState(true);
   const [selectedBeneficiary, setSelectedBeneficiary] = useState(MOCK_BENEFICIARIES[0]?.id ?? "");
-  const [newBenef, setNewBenef] = useState({ name: "", account: "", bank: "", phone: "" });
+  const [newBenef, setNewBenef] = useState({ name: "", account: "", bank: "", phone: "", cedula: "" });
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
   const addTransfer = useTransferStore((s) => s.addTransfer);
@@ -411,15 +411,47 @@ export default function SendPage() {
                   ) : (
                     <div className="space-y-3">
                       <div>
-                        <Label>Nombre completo</Label>
+                        <Label>Nombre y apellido</Label>
                         <Input
                           value={newBenef.name}
                           onChange={(e) => setNewBenef({ ...newBenef, name: e.target.value })}
-                          placeholder="Nombre del receptor"
+                          placeholder="Nombre completo del receptor"
                           className="mt-1.5"
                         />
                       </div>
-                      {deliveryMethod === "bank" && (
+                      {deliveryOption.appName === "Pagomóvil" && (
+                        <>
+                          <div>
+                            <Label>Cédula de identidad</Label>
+                            <Input
+                              value={newBenef.cedula}
+                              onChange={(e) => setNewBenef({ ...newBenef, cedula: e.target.value })}
+                              placeholder="V-12345678"
+                              className="mt-1.5"
+                            />
+                          </div>
+                          <div>
+                            <Label>Teléfono Pagomóvil</Label>
+                            <Input
+                              value={newBenef.phone}
+                              onChange={(e) => setNewBenef({ ...newBenef, phone: e.target.value })}
+                              placeholder="+58 414 000 0000"
+                              className="mt-1.5"
+                              type="tel"
+                            />
+                          </div>
+                          <div>
+                            <Label>Banco</Label>
+                            <Input
+                              value={newBenef.bank}
+                              onChange={(e) => setNewBenef({ ...newBenef, bank: e.target.value })}
+                              placeholder="Banco de Venezuela, Banesco..."
+                              className="mt-1.5"
+                            />
+                          </div>
+                        </>
+                      )}
+                      {deliveryMethod === "bank" && deliveryOption.appName !== "Pagomóvil" && (
                         <>
                           <div>
                             <Label>Banco</Label>
@@ -441,13 +473,13 @@ export default function SendPage() {
                           </div>
                         </>
                       )}
-                      {deliveryMethod === "mobile_money" && deliveryOption.phoneLabel && (
+                      {deliveryMethod === "mobile_money" && deliveryOption.phoneLabel && deliveryOption.appName !== "Pagomóvil" && (
                         <div>
                           <Label>{deliveryOption.phoneLabel}</Label>
                           <Input
                             value={newBenef.phone}
                             onChange={(e) => setNewBenef({ ...newBenef, phone: e.target.value })}
-                            placeholder={receiveCurrency === "USD" ? "+1 305 000 0000 o email" : receiveCurrency === "PEN" ? "+51 987 000 000" : receiveCurrency === "VES" ? "+58 414 000 0000" : "+34 612 000 000"}
+                            placeholder={receiveCurrency === "USD" ? "+1 305 000 0000 o email" : receiveCurrency === "PEN" ? "+51 987 000 000" : "+34 612 000 000"}
                             className="mt-1.5"
                           />
                         </div>
