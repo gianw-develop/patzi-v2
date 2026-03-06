@@ -57,11 +57,26 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="border-t border-slate-800 mt-12 pt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-sm">
-          <p>© 2026 Patzi Financial S.L. · patzi.net · Todos los derechos reservados.</p>
-          <p className="text-xs text-slate-500">
-            Patzi está regulado bajo la normativa europea de servicios de pago (PSD2). Número de registro: PATZI-2026-001
-          </p>
+        <div className="border-t border-slate-800 mt-12 pt-8 space-y-4">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-sm">
+            <p>© 2026 Patzi Financial S.L. · patzi.net · Todos los derechos reservados.</p>
+            <p className="text-xs text-slate-500">
+              Patzi está regulado bajo la normativa europea de servicios de pago (PSD2). Número de registro: PATZI-2026-001
+            </p>
+          </div>
+          <div className="flex justify-center border-t border-slate-800/60 pt-4">
+            <p className="text-xs text-slate-600">
+              Creado por{" "}
+              <a
+                href="https://gianweb.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-slate-500 hover:text-slate-300 transition-colors font-medium"
+              >
+                GianWeb
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     </footer>

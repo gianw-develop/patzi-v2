@@ -34,7 +34,7 @@ export default function Home() {
                 Crear cuenta gratis <ArrowRight className="w-4 h-4 ml-2" />
               </Link>
             </Button>
-            <Button size="lg" variant="outline" asChild className="border-white text-white hover:bg-white/10">
+            <Button size="lg" variant="outline" asChild className="bg-transparent border-white text-white hover:bg-white/10">
               <Link href="/auth/login">Ya tengo cuenta</Link>
             </Button>
           </div>
