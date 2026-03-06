@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, ArrowDownUp, Zap, ShieldCheck } from "lucide-react";
 import { CURRENCY_INFO } from "@/lib/exchange-rates";
-import { useRatesStore, calcTransferLive } from "@/lib/rates-store";
+import { useRatesStore, getEffectiveRate } from "@/lib/rates-store";
 import type { Currency } from "@/types";
 
 const SEND_CURRENCIES: Currency[] = ["EUR", "USD"];
@@ -13,15 +13,12 @@ const RECEIVE_CURRENCIES: Currency[] = ["PEN", "VES", "USD", "EUR"];
 
 export default function Calculator() {
   const [sendAmount, setSendAmount] = useState("100");
+  const [receiveAmount, setReceiveAmount] = useState("");
+  const [activeField, setActiveField] = useState<"send" | "receive">("send");
   const [sendCurrency, setSendCurrency] = useState<Currency>("EUR");
   const [receiveCurrency, setReceiveCurrency] = useState<Currency>("PEN");
   const { markups, liveRates, setLiveRates } = useRatesStore();
-  const [result, setResult] = useState<{
-    receiveAmount: number;
-    exchangeRate: number;
-    fee: number;
-    totalCharged: number;
-  } | null>(null);
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null);
 
   useEffect(() => {
     if (Object.keys(liveRates).length === 0) {
@@ -33,20 +30,36 @@ export default function Calculator() {
   }, [liveRates, setLiveRates]);
 
   useEffect(() => {
-    const amount = parseFloat(sendAmount);
-    if (!isNaN(amount) && amount > 0 && sendCurrency !== receiveCurrency) {
-      const pair = `${sendCurrency}-${receiveCurrency}`;
-      const calc = calcTransferLive(pair, amount, liveRates, markups);
-      setResult(calc);
-    } else {
-      setResult(null);
+    const pair = `${sendCurrency}-${receiveCurrency}`;
+    const rate = getEffectiveRate(pair, liveRates, markups);
+    setExchangeRate(rate);
+
+    if (!rate || sendCurrency === receiveCurrency) {
+      setReceiveAmount("");
+      return;
     }
-  }, [sendAmount, sendCurrency, receiveCurrency, liveRates, markups]);
+
+    if (activeField === "send") {
+      const amt = parseFloat(sendAmount);
+      setReceiveAmount(isNaN(amt) || amt <= 0 ? "" : (amt * rate).toFixed(2));
+    } else {
+      const amt = parseFloat(receiveAmount);
+      setSendAmount(isNaN(amt) || amt <= 0 ? "" : (amt / rate).toFixed(2));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendAmount, receiveAmount, sendCurrency, receiveCurrency, liveRates, markups, activeField]);
+
+  const handleSendChange = (v: string) => { setActiveField("send"); setSendAmount(v); };
+  const handleReceiveChange = (v: string) => { setActiveField("receive"); setReceiveAmount(v); };
 
   const handleSendCurrencyChange = (c: Currency) => {
     setSendCurrency(c);
     if (c === receiveCurrency) setReceiveCurrency(c === "EUR" ? "PEN" : "EUR");
   };
+
+  const sendAmt = parseFloat(sendAmount);
+  const receiveAmt = parseFloat(receiveAmount);
+  const showSummary = exchangeRate && !isNaN(sendAmt) && sendAmt > 0 && !isNaN(receiveAmt) && receiveAmt > 0;
 
   const availableReceive = RECEIVE_CURRENCIES.filter((c) => c !== sendCurrency);
 
@@ -65,15 +78,20 @@ export default function Calculator() {
         <div className="space-y-1.5">
           <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">Tú envías</p>
           <div className="flex gap-2">
-            <div className="flex-1 flex items-center bg-slate-50 border border-slate-200 rounded-xl px-4 h-14 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+            <div className={`flex-1 flex items-center rounded-xl px-4 h-14 transition-all border ${
+              activeField === "send"
+                ? "bg-slate-50 border-blue-400 ring-2 ring-blue-100"
+                : "bg-slate-50 border-slate-200 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100"
+            }`}>
               <span className="text-slate-400 text-sm mr-1">{CURRENCY_INFO[sendCurrency].symbol}</span>
               <input
                 type="number"
                 value={sendAmount}
-                onChange={(e) => setSendAmount(e.target.value)}
+                onChange={(e) => handleSendChange(e.target.value)}
+                onFocus={() => setActiveField("send")}
                 className="flex-1 bg-transparent text-xl font-bold text-slate-800 outline-none w-0"
                 min="1"
-                placeholder="200"
+                placeholder="100"
               />
             </div>
             <div className="flex gap-1.5">
@@ -106,12 +124,22 @@ export default function Calculator() {
 
         {/* Receive row */}
         <div className="space-y-1.5">
-          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">El receptor recibe</p>
+          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">Ellos reciben</p>
           <div className="flex gap-2">
-            <div className="flex-1 flex items-center bg-emerald-50 border border-emerald-200 rounded-xl px-4 h-14">
-              <span className="text-2xl font-bold text-emerald-700">
-                {result ? result.receiveAmount.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
-              </span>
+            <div className={`flex-1 flex items-center rounded-xl px-4 h-14 transition-all border ${
+              activeField === "receive"
+                ? "bg-emerald-50 border-emerald-400 ring-2 ring-emerald-100"
+                : "bg-emerald-50 border-emerald-200 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-100"
+            }`}>
+              <input
+                type="number"
+                value={receiveAmount}
+                onChange={(e) => handleReceiveChange(e.target.value)}
+                onFocus={() => setActiveField("receive")}
+                className="flex-1 bg-transparent text-2xl font-bold text-emerald-700 outline-none w-0"
+                min="0"
+                placeholder="—"
+              />
             </div>
             <div className="flex gap-1.5 flex-wrap justify-end">
               {availableReceive.map((c) => (
@@ -133,12 +161,12 @@ export default function Calculator() {
         </div>
 
         {/* Summary card */}
-        {result && (
+        {showSummary && exchangeRate && (
           <div className="rounded-2xl border border-slate-100 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
               <span className="text-xs text-slate-500">Tasa de cambio</span>
               <span className="text-xs font-semibold text-slate-700">
-                1 {sendCurrency} = {result.exchangeRate.toFixed(4)} {receiveCurrency}
+                1 {sendCurrency} = {exchangeRate.toFixed(4)} {receiveCurrency}
               </span>
             </div>
             <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
@@ -148,7 +176,7 @@ export default function Calculator() {
             <div className="flex items-center justify-between px-4 py-3 bg-white">
               <span className="text-sm font-semibold text-slate-700">Total a pagar</span>
               <span className="text-base font-bold text-slate-900">
-                {CURRENCY_INFO[sendCurrency].symbol}{result.totalCharged.toFixed(2)}
+                {CURRENCY_INFO[sendCurrency].symbol}{sendAmt.toFixed(2)}
               </span>
             </div>
           </div>
