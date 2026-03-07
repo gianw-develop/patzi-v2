@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,17 +10,16 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Settings, Globe, DollarSign, Save, Upload, Trash2, ImageIcon, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { useBrandStore } from "@/lib/brand-store";
+import { createClient } from "@/lib/supabase";
 import Image from "next/image";
 
 export default function AdminSettingsPage() {
-  const { logoUrl, platformName, setLogo, setPlatformName } = useBrandStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(logoUrl);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const [config, setConfig] = useState({
-    platform_name: platformName,
+    platform_name: "Patzi",
     support_email: "soporte@patzi.net",
     max_transfer_unverified: "500",
     max_transfer_verified: "10000",
@@ -34,33 +33,63 @@ export default function AdminSettingsPage() {
   const update = (field: string, value: string | boolean) =>
     setConfig((p) => ({ ...p, [field]: value }));
 
-  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    fetch("/api/brand")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.logoUrl) setPreviewUrl(d.logoUrl);
+        if (d.platformName) setConfig((p) => ({ ...p, platform_name: d.platformName }));
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) { toast.error("El logo no puede superar 2 MB"); return; }
     if (!file.type.startsWith("image/")) { toast.error("Solo se permiten imágenes (PNG, JPG, SVG, WebP)"); return; }
     setUploading(true);
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const url = ev.target?.result as string;
-      setPreviewUrl(url);
-      setLogo(url);
+    try {
+      const supabase = createClient();
+      const ext = file.name.split(".").pop();
+      const path = `logo/patzi-logo.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("brand")
+        .upload(path, file, { upsert: true });
+      if (uploadError) throw new Error(uploadError.message);
+      const { data: { publicUrl } } = supabase.storage.from("brand").getPublicUrl(path);
+      setPreviewUrl(publicUrl);
+      await fetch("/api/brand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logo_url: publicUrl }),
+      });
+      toast.success("Logo guardado en la base de datos");
+    } catch (err) {
+      toast.error(`Error subiendo logo: ${(err as Error).message}`);
+    } finally {
       setUploading(false);
-      toast.success("Logo actualizado correctamente");
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
-  const handleRemoveLogo = () => {
+  const handleRemoveLogo = async () => {
     setPreviewUrl(null);
-    setLogo(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    await fetch("/api/brand", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ logo_url: "" }),
+    });
     toast.info("Logo eliminado — se usará el logo por defecto");
   };
 
-  const handleSave = () => {
-    setPlatformName(config.platform_name);
-    toast.success("Configuración guardada correctamente");
+  const handleSave = async () => {
+    await fetch("/api/brand", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform_name: config.platform_name }),
+    });
+    toast.success("Configuración guardada en la base de datos");
   };
 
   return (

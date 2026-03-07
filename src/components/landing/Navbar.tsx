@@ -4,17 +4,24 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Menu, X, Zap } from "lucide-react";
-import { useBrandStore } from "@/lib/brand-store";
 import Image from "next/image";
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const { logoUrl, platformName } = useBrandStore();
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [platformName, setPlatformName] = useState("Patzi");
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    fetch("/api/brand")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.logoUrl) setLogoUrl(d.logoUrl);
+        if (d.platformName) setPlatformName(d.platformName);
+      })
+      .catch(() => {});
+  }, []);
 
-  const effectiveLogo = mounted ? logoUrl : null;
+  const effectiveLogo = logoUrl;
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-slate-100 shadow-sm">
@@ -28,7 +35,7 @@ export default function Navbar() {
                 <div className="w-8 h-8 bg-blue-900 rounded-lg flex items-center justify-center">
                   <Zap className="w-5 h-5 text-emerald-400" />
                 </div>
-                <span className="text-xl font-bold text-blue-900">{mounted ? (platformName || "Patzi") : "Patzi"}</span>
+                <span className="text-xl font-bold text-blue-900">{platformName}</span>
               </>
             )}
           </Link>

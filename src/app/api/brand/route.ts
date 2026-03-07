@@ -1,0 +1,48 @@
+import { createClient } from "@supabase/supabase-js";
+import { NextRequest } from "next/server";
+
+export const dynamic = "force-dynamic";
+
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+}
+
+export async function GET() {
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from("platform_settings")
+    .select("key, value")
+    .in("key", ["logo_url", "platform_name"]);
+
+  const settings = (data ?? []).reduce((acc: Record<string, string>, row) => {
+    acc[row.key] = row.value;
+    return acc;
+  }, {});
+
+  return Response.json({
+    logoUrl: settings["logo_url"] ?? null,
+    platformName: settings["platform_name"] ?? "Patzi",
+  });
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const supabase = getSupabase();
+
+  const updates = Object.entries(body as Record<string, string>).map(([key, value]) => ({
+    key,
+    value,
+    updated_at: new Date().toISOString(),
+  }));
+
+  for (const row of updates) {
+    await supabase
+      .from("platform_settings")
+      .upsert(row, { onConflict: "key" });
+  }
+
+  return Response.json({ ok: true });
+}
