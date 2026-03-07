@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,17 @@ export default function AdminSettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(logoUrl);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/brand")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.logoUrl) { setLogo(d.logoUrl); setPreviewUrl(d.logoUrl); }
+        if (d.platformName) setPlatformName(d.platformName);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [config, setConfig] = useState({
     platform_name: platformName,
@@ -41,25 +52,49 @@ export default function AdminSettingsPage() {
     if (!file.type.startsWith("image/")) { toast.error("Solo se permiten imágenes (PNG, JPG, SVG, WebP)"); return; }
     setUploading(true);
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const url = ev.target?.result as string;
       setPreviewUrl(url);
       setLogo(url);
-      setUploading(false);
-      toast.success("Logo actualizado correctamente");
+      try {
+        await fetch("/api/brand", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ logoUrl: url }),
+        });
+        toast.success("Logo actualizado correctamente");
+      } catch {
+        toast.success("Logo actualizado localmente");
+      } finally {
+        setUploading(false);
+      }
     };
     reader.readAsDataURL(file);
   };
 
-  const handleRemoveLogo = () => {
+  const handleRemoveLogo = async () => {
     setPreviewUrl(null);
     setLogo(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    try {
+      await fetch("/api/brand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logoUrl: null }),
+      });
+    } catch { /* silent */ }
     toast.info("Logo eliminado — se usará el logo por defecto");
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setPlatformName(config.platform_name);
+    try {
+      await fetch("/api/brand", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platformName: config.platform_name }),
+      });
+    } catch { /* silent */ }
     toast.success("Configuración guardada correctamente");
   };
 

@@ -10,9 +10,19 @@ import Image from "next/image";
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const { logoUrl, platformName } = useBrandStore();
+  const { logoUrl, platformName, setLogo, setPlatformName } = useBrandStore();
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+    fetch("/api/brand")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.logoUrl) setLogo(d.logoUrl);
+        if (d.platformName) setPlatformName(d.platformName);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const effectiveLogo = mounted ? logoUrl : null;
 
