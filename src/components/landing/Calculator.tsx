@@ -17,19 +17,17 @@ export default function Calculator() {
   const [activeField, setActiveField] = useState<"send" | "receive">("send");
   const [sendCurrency, setSendCurrency] = useState<Currency>("EUR");
   const [receiveCurrency, setReceiveCurrency] = useState<Currency>("PEN");
-  const { markups, liveRates, setLiveRates, setMarkups } = useRatesStore();
+  const { markups, liveRates, setLiveRates } = useRatesStore();
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch("/api/rates")
-      .then((r) => r.json())
-      .then((d) => {
-        setLiveRates(d.rates, d.updated_at, d.source);
-        if (d.markups) setMarkups(d.markups);
-      })
-      .catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (Object.keys(liveRates).length === 0) {
+      fetch("/api/rates")
+        .then((r) => r.json())
+        .then((d) => setLiveRates(d.rates, d.updated_at, d.source))
+        .catch(() => {});
+    }
+  }, [liveRates, setLiveRates]);
 
   useEffect(() => {
     const pair = `${sendCurrency}-${receiveCurrency}`;
