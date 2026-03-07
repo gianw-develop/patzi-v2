@@ -16,6 +16,7 @@ export const DEFAULT_MARKUPS: Record<Pair, number> = {
 interface RatesState {
   markups: Record<Pair, number>;
   setMarkup: (pair: Pair, v: number) => void;
+  setMarkups: (m: Record<string, number>) => void;
   liveRates: Record<string, number>;
   lastUpdated: string | null;
   source: string | null;
@@ -28,6 +29,8 @@ export const useRatesStore = create<RatesState>()(
       markups: { ...DEFAULT_MARKUPS },
       setMarkup: (pair, v) =>
         set((s) => ({ markups: { ...s.markups, [pair]: v } })),
+      setMarkups: (m) =>
+        set((s) => ({ markups: { ...s.markups, ...m } })),
       liveRates: {},
       lastUpdated: null,
       source: null,

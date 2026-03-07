@@ -1,4 +1,6 @@
-export const revalidate = 86400; // revalidate every 24 hours
+import { createClient } from "@supabase/supabase-js";
+
+export const dynamic = "force-dynamic";
 
 const FALLBACK = {
   "EUR-USD": 1.085,
@@ -9,10 +11,42 @@ const FALLBACK = {
   "USD-VES": 36.4,
 };
 
+const DEFAULT_MARKUPS: Record<string, number> = {
+  "EUR-PEN": 3,
+  "EUR-VES": 8,
+  "EUR-USD": 1,
+  "USD-PEN": 3,
+  "USD-VES": 8,
+  "USD-EUR": 1,
+};
+
+async function getMarkups(): Promise<Record<string, number>> {
+  try {
+    const sb = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    const { data, error } = await sb
+      .from("exchange_rates")
+      .select("from_currency, to_currency, markup_percent")
+      .eq("is_active", true);
+    if (error || !data || data.length === 0) return DEFAULT_MARKUPS;
+    const result: Record<string, number> = { ...DEFAULT_MARKUPS };
+    for (const row of data) {
+      result[`${row.from_currency}-${row.to_currency}`] = Number(row.markup_percent);
+    }
+    return result;
+  } catch {
+    return DEFAULT_MARKUPS;
+  }
+}
+
 export async function GET() {
+  const markups = await getMarkups();
+
   try {
     const res = await fetch("https://open.er-api.com/v6/latest/EUR", {
-      next: { revalidate: 86400 },
+      cache: "no-store",
     });
 
     if (!res.ok) throw new Error("fetch failed");
@@ -36,12 +70,14 @@ export async function GET() {
 
     return Response.json({
       rates,
+      markups,
       updated_at: data.time_last_update_utc ?? new Date().toISOString(),
       source: "open.er-api.com",
     });
   } catch {
     return Response.json({
       rates: FALLBACK,
+      markups,
       updated_at: new Date().toISOString(),
       source: "fallback",
     });

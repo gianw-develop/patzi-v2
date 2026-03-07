@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { RefreshCw, Save, AlertCircle, Zap } from "lucide-react";
 import { CURRENCY_INFO } from "@/lib/exchange-rates";
 import { useRatesStore, getEffectiveRate, PAIRS, type Pair } from "@/lib/rates-store";
+import { createClient } from "@/lib/supabase";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -18,7 +19,7 @@ const PAIR_META = PAIRS.map((pair) => {
 });
 
 export default function AdminRatesPage() {
-  const { markups, setMarkup, liveRates, lastUpdated, source, setLiveRates } = useRatesStore();
+  const { markups, setMarkup, setMarkups, liveRates, lastUpdated, source, setLiveRates } = useRatesStore();
   const [inputs, setInputs] = useState<Record<string, string>>(
     () => Object.fromEntries(PAIRS.map((p) => [p, String(markups[p as Pair] ?? 0)]))
   );
@@ -29,10 +30,22 @@ export default function AdminRatesPage() {
     const v = parseFloat(inputs[pair]);
     if (isNaN(v) || v < -50 || v > 50) { toast.error("Introduce un margen entre -50% y 50%"); return; }
     setSaving((s) => ({ ...s, [pair]: true }));
-    await new Promise((r) => setTimeout(r, 300));
-    setMarkup(pair, v);
-    setSaving((s) => ({ ...s, [pair]: false }));
-    toast.success(`Margen ${pair} actualizado a ${v}%`);
+    try {
+      const [from, to] = pair.split("-");
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("exchange_rates")
+        .update({ markup_percent: v })
+        .eq("from_currency", from)
+        .eq("to_currency", to);
+      if (error) throw new Error(error.message);
+      setMarkup(pair, v);
+      toast.success(`Margen ${pair} actualizado a ${v}%`);
+    } catch (err) {
+      toast.error(`Error guardando: ${(err as Error).message}`);
+    } finally {
+      setSaving((s) => ({ ...s, [pair]: false }));
+    }
   };
 
   const fetchRates = useCallback(async () => {
@@ -41,6 +54,10 @@ export default function AdminRatesPage() {
       const res = await fetch("/api/rates");
       const data = await res.json();
       setLiveRates(data.rates, data.updated_at, data.source);
+      if (data.markups) {
+        setMarkups(data.markups);
+        setInputs(Object.fromEntries(Object.entries(data.markups).map(([k, v]) => [k, String(v)])));
+      }
       toast.success("Tasas actualizadas desde el mercado");
     } catch {
       toast.error("Error al obtener tasas. Usando valores anteriores.");
