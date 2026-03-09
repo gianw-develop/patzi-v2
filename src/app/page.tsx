@@ -1,9 +1,13 @@
 import Navbar from "@/components/landing/Navbar";
 import Hero from "@/components/landing/Hero";
+import Stats from "@/components/landing/Stats";
 import HowItWorks from "@/components/landing/HowItWorks";
 import Corridors from "@/components/landing/Corridors";
 import Features from "@/components/landing/Features";
-import RatesTable from "@/components/landing/RatesTable";
+import Testimonials from "@/components/landing/Testimonials";
+import Comparison from "@/components/landing/Comparison";
+import Security from "@/components/landing/Security";
+import FAQ from "@/components/landing/FAQ";
 import Footer from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -14,10 +18,14 @@ export default function Home() {
     <main>
       <Navbar />
       <Hero />
+      <Stats />
       <HowItWorks />
       <Corridors />
       <Features />
-      <RatesTable />
+      <Testimonials />
+      <Comparison />
+      <Security />
+      <FAQ />
 
       <section className="py-24 bg-gradient-to-br from-emerald-500 to-emerald-600">
         <div className="max-w-4xl mx-auto px-4 text-center">
