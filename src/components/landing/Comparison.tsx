@@ -28,43 +28,45 @@ export default function Comparison() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-14">
           <span className="text-sm font-semibold text-emerald-600 uppercase tracking-wider">Comparativa</span>
-          <h2 className="text-4xl font-bold text-slate-900 mt-2 mb-4">Patzi vs la competencia</h2>
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mt-2 mb-4">Patzi vs la competencia</h2>
           <p className="text-lg text-slate-500 max-w-xl mx-auto">
             Compara y decide. Los números hablan por sí solos.
           </p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          {/* Header */}
-          <div className="grid grid-cols-4 bg-slate-50 border-b border-slate-100">
-            <div className="p-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Característica</div>
-            <div className="p-4 text-center">
-              <div className="inline-flex items-center gap-1.5 bg-blue-900 text-white text-xs font-bold px-3 py-1.5 rounded-full">
-                ⚡ Patzi
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <div className="min-w-[580px] bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            {/* Header */}
+            <div className="grid grid-cols-4 bg-slate-50 border-b border-slate-100">
+              <div className="p-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Característica</div>
+              <div className="p-4 text-center">
+                <div className="inline-flex items-center gap-1.5 bg-blue-900 text-white text-xs font-bold px-3 py-1.5 rounded-full">
+                  ⚡ Patzi
+                </div>
               </div>
+              <div className="p-4 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Banco</div>
+              <div className="p-4 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Western Union</div>
             </div>
-            <div className="p-4 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Banco tradicional</div>
-            <div className="p-4 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Western Union</div>
-          </div>
 
-          {/* Rows */}
-          {ROWS.map((row, i) => (
-            <div
-              key={row.feature}
-              className={`grid grid-cols-4 items-center border-b border-slate-50 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/50"}`}
-            >
-              <div className="p-4 text-sm text-slate-600 font-medium">{row.feature}</div>
-              <div className="p-4 text-center">
-                <Cell value={row.patzi} />
+            {/* Rows */}
+            {ROWS.map((row, i) => (
+              <div
+                key={row.feature}
+                className={`grid grid-cols-4 items-center border-b border-slate-50 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/50"}`}
+              >
+                <div className="p-4 text-sm text-slate-600 font-medium">{row.feature}</div>
+                <div className="p-4 text-center">
+                  <Cell value={row.patzi} />
+                </div>
+                <div className="p-4 text-center">
+                  <Cell value={row.bank} />
+                </div>
+                <div className="p-4 text-center">
+                  <Cell value={row.wu} />
+                </div>
               </div>
-              <div className="p-4 text-center">
-                <Cell value={row.bank} />
-              </div>
-              <div className="p-4 text-center">
-                <Cell value={row.wu} />
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-4">

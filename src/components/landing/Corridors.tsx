@@ -20,10 +20,10 @@ export default function Corridors() {
 
         <div className="text-center mb-16">
           <span className="text-sm font-semibold text-emerald-600 uppercase tracking-wider">Aplicación web progresiva</span>
-          <h2 className="text-4xl font-bold text-slate-900 mt-2 mb-4">
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mt-2 mb-4">
             Disponible en todos tus dispositivos
           </h2>
-          <p className="text-lg text-slate-500 max-w-2xl mx-auto">
+          <p className="text-base sm:text-lg text-slate-500 max-w-2xl mx-auto">
             Patzi funciona como una app nativa en tu móvil, tablet o computadora — sin pasar por App Store ni Google Play.
           </p>
         </div>
@@ -113,7 +113,7 @@ export default function Corridors() {
               <p className="text-blue-300 text-sm mt-0.5">Abre patzi.net en tu móvil y agrégala a tu pantalla de inicio en segundos.</p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-4 text-sm">
+          <div className="flex flex-wrap gap-3 text-sm justify-center md:justify-start">
             <span className="flex items-center gap-1.5 text-emerald-300"><CheckCircle className="w-4 h-4" /> Sin App Store</span>
             <span className="flex items-center gap-1.5 text-emerald-300"><Shield className="w-4 h-4" /> Conexión segura</span>
             <span className="flex items-center gap-1.5 text-emerald-300"><Download className="w-4 h-4" /> Instalación en 1 tap</span>

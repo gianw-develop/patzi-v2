@@ -45,8 +45,8 @@ export default function Security() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-14">
           <span className="text-sm font-semibold text-emerald-600 uppercase tracking-wider">Tu seguridad, primero</span>
-          <h2 className="text-4xl font-bold text-slate-900 mt-2 mb-4">Protegemos tu dinero en cada paso</h2>
-          <p className="text-lg text-slate-500 max-w-2xl mx-auto">
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mt-2 mb-4">Protegemos tu dinero en cada paso</h2>
+          <p className="text-base sm:text-lg text-slate-500 max-w-2xl mx-auto">
             Usamos los mismos estándares de seguridad que los principales bancos europeos para que puedas enviar con total tranquilidad.
           </p>
         </div>

@@ -41,8 +41,8 @@ export default function Testimonials() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-14">
           <span className="text-sm font-semibold text-emerald-600 uppercase tracking-wider">Opiniones reales</span>
-          <h2 className="text-4xl font-bold text-slate-900 mt-2 mb-4">Lo que dicen nuestros usuarios</h2>
-          <p className="text-lg text-slate-500 max-w-xl mx-auto">
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mt-2 mb-4">Lo que dicen nuestros usuarios</h2>
+          <p className="text-base sm:text-lg text-slate-500 max-w-xl mx-auto">
             Miles de personas ya confían en Patzi para enviar dinero a sus familias.
           </p>
         </div>

@@ -46,8 +46,8 @@ export default function FAQ() {
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-14">
           <span className="text-sm font-semibold text-emerald-600 uppercase tracking-wider">Preguntas frecuentes</span>
-          <h2 className="text-4xl font-bold text-slate-900 mt-2 mb-4">Todo lo que necesitas saber</h2>
-          <p className="text-lg text-slate-500">
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mt-2 mb-4">Todo lo que necesitas saber</h2>
+          <p className="text-base sm:text-lg text-slate-500">
             ¿Tienes dudas? Aquí respondemos las preguntas más comunes.
           </p>
         </div>

@@ -33,7 +33,7 @@ function StatCard({ value, suffix, prefix, label, decimals, active }: {
   const count = useCountUp(value, decimals, active);
   return (
     <div className="text-center">
-      <p className="text-4xl sm:text-5xl font-extrabold text-white tabular-nums">
+      <p className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tabular-nums">
         {prefix ?? ""}{decimals > 0 ? count.toFixed(decimals) : Math.round(count).toLocaleString()}{suffix}
       </p>
       <p className="mt-2 text-blue-300 text-sm font-medium">{label}</p>
@@ -57,7 +57,7 @@ export default function Stats() {
   return (
     <section className="py-20 bg-blue-950" ref={ref}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-10">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8 lg:gap-10">
           {STATS.map((s) => (
             <StatCard key={s.label} {...s} active={active} />
           ))}
