@@ -48,10 +48,10 @@ export default function Navbar() {
               Cómo funciona
             </Link>
             <Link href="#paises" className="text-sm text-slate-600 hover:text-blue-900 transition-colors">
-              Países
+              App móvil
             </Link>
-            <Link href="#tasas" className="text-sm text-slate-600 hover:text-blue-900 transition-colors">
-              Tasas de cambio
+            <Link href="#comparativa" className="text-sm text-slate-600 hover:text-blue-900 transition-colors">
+              Comparativa
             </Link>
             <Link href="#seguridad" className="text-sm text-slate-600 hover:text-blue-900 transition-colors">
               Seguridad
@@ -82,10 +82,13 @@ export default function Navbar() {
                 Cómo funciona
               </Link>
               <Link href="#paises" className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-md" onClick={() => setMobileOpen(false)}>
-                Países
+                App móvil
               </Link>
-              <Link href="#tasas" className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-md" onClick={() => setMobileOpen(false)}>
-                Tasas de cambio
+              <Link href="#comparativa" className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-md" onClick={() => setMobileOpen(false)}>
+                Comparativa
+              </Link>
+              <Link href="#seguridad" className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-md" onClick={() => setMobileOpen(false)}>
+                Seguridad
               </Link>
               <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-slate-100">
                 <Button variant="outline" asChild className="w-full">
