@@ -47,7 +47,7 @@ const features = [
 
 export default function Features() {
   return (
-    <section id="seguridad" className="py-24 bg-white">
+    <section id="caracteristicas" className="py-24 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <span className="text-sm font-semibold text-emerald-600 uppercase tracking-wider">Por qué Patzi</span>

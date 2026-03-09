@@ -24,7 +24,7 @@ function Cell({ value }: { value: string | boolean | null }) {
 
 export default function Comparison() {
   return (
-    <section className="py-24 bg-slate-50">
+    <section id="comparativa" className="py-24 bg-slate-50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-14">
           <span className="text-sm font-semibold text-emerald-600 uppercase tracking-wider">Comparativa</span>

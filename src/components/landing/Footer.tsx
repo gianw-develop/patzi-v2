@@ -30,29 +30,31 @@ export default function Footer() {
             <h4 className="text-white font-semibold mb-4">Producto</h4>
             <ul className="space-y-2 text-sm">
               <li><Link href="#como-funciona" className="hover:text-white transition-colors">Cómo funciona</Link></li>
-              <li><Link href="#paises" className="hover:text-white transition-colors">Países</Link></li>
-              <li><Link href="#tasas" className="hover:text-white transition-colors">Tasas de cambio</Link></li>
-              <li><Link href="/auth/register" className="hover:text-white transition-colors">Billetera EUR/USD</Link></li>
+              <li><Link href="#paises" className="hover:text-white transition-colors">App móvil</Link></li>
+              <li><Link href="#comparativa" className="hover:text-white transition-colors">Comparativa</Link></li>
+              <li><Link href="#seguridad" className="hover:text-white transition-colors">Seguridad</Link></li>
+              <li><Link href="#faq" className="hover:text-white transition-colors">Preguntas frecuentes</Link></li>
+              <li><Link href="/auth/register" className="hover:text-white transition-colors">Crear cuenta gratis</Link></li>
             </ul>
           </div>
 
           <div>
             <h4 className="text-white font-semibold mb-4">Empresa</h4>
             <ul className="space-y-2 text-sm">
-              <li><Link href="#" className="hover:text-white transition-colors">Sobre nosotros</Link></li>
-              <li><Link href="#" className="hover:text-white transition-colors">Blog</Link></li>
-              <li><Link href="#" className="hover:text-white transition-colors">Empleos</Link></li>
-              <li><Link href="#" className="hover:text-white transition-colors">Prensa</Link></li>
+              <li><span className="cursor-default">Sobre nosotros</span></li>
+              <li><span className="cursor-default">Blog</span></li>
+              <li><span className="cursor-default">Empleos</span></li>
+              <li><span className="cursor-default">Prensa</span></li>
             </ul>
           </div>
 
           <div>
             <h4 className="text-white font-semibold mb-4">Legal</h4>
             <ul className="space-y-2 text-sm">
-              <li><Link href="#" className="hover:text-white transition-colors">Términos y condiciones</Link></li>
-              <li><Link href="#" className="hover:text-white transition-colors">Política de privacidad</Link></li>
-              <li><Link href="#" className="hover:text-white transition-colors">Política de cookies</Link></li>
-              <li><Link href="#" className="hover:text-white transition-colors">Cumplimiento AML</Link></li>
+              <li><span className="cursor-default">Términos y condiciones</span></li>
+              <li><span className="cursor-default">Política de privacidad</span></li>
+              <li><span className="cursor-default">Política de cookies</span></li>
+              <li><span className="cursor-default">Cumplimiento AML</span></li>
             </ul>
           </div>
         </div>
