@@ -193,9 +193,9 @@ export const CORRIDORS: Corridor[] = [
   },
 ];
 
-export const CURRENCY_INFO: Record<Currency, { name: string; symbol: string; flag: string; country: string }> = {
-  EUR: { name: "Euro", symbol: "€", flag: "🇪🇺", country: "Europa" },
-  USD: { name: "Dólar Americano", symbol: "$", flag: "🇺🇸", country: "EE.UU." },
-  PEN: { name: "Sol Peruano", symbol: "S/", flag: "🇵🇪", country: "Perú" },
-  VES: { name: "Bolívar Venezolano", symbol: "Bs.", flag: "🇻🇪", country: "Venezuela" },
+export const CURRENCY_INFO: Record<Currency, { name: string; symbol: string; flag: string; flagUrl: string; country: string }> = {
+  EUR: { name: "Euro", symbol: "€", flag: "🇪🇺", flagUrl: "https://flagcdn.com/24x18/eu.png", country: "Europa" },
+  USD: { name: "Dólar Americano", symbol: "$", flag: "🇺🇸", flagUrl: "https://flagcdn.com/24x18/us.png", country: "EE.UU." },
+  PEN: { name: "Sol Peruano", symbol: "S/", flag: "🇵🇪", flagUrl: "https://flagcdn.com/24x18/pe.png", country: "Perú" },
+  VES: { name: "Bolívar Venezolano", symbol: "Bs.", flag: "🇻🇪", flagUrl: "https://flagcdn.com/24x18/ve.png", country: "Venezuela" },
 };

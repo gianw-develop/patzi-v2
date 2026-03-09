@@ -118,9 +118,9 @@ export default function AdminRatesPage() {
               <Card key={pair} className="border-0 shadow-sm">
                 <CardContent className="p-5 space-y-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl">{fromInfo?.flag}</span>
+                    <img src={fromInfo?.flagUrl} alt={from} className="w-6 h-4 object-cover rounded-sm" />
                     <span className="text-slate-300">→</span>
-                    <span className="text-2xl">{toInfo?.flag}</span>
+                    <img src={toInfo?.flagUrl} alt={to} className="w-6 h-4 object-cover rounded-sm" />
                     <span className="font-bold text-slate-700 ml-1">{from} / {to}</span>
                   </div>
 

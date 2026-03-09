@@ -107,7 +107,7 @@ export default function Calculator() {
                       : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
                   }`}
                 >
-                  <span className="text-base leading-none">{CURRENCY_INFO[c].flag}</span>
+                  <img src={CURRENCY_INFO[c].flagUrl} alt={c} className="w-5 h-3.5 object-cover rounded-[2px]" />
                   <span className="text-xs">{c}</span>
                 </button>
               ))}
@@ -154,7 +154,7 @@ export default function Calculator() {
                       : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
                   }`}
                 >
-                  <span className="text-base leading-none">{CURRENCY_INFO[c].flag}</span>
+                  <img src={CURRENCY_INFO[c].flagUrl} alt={c} className="w-5 h-3.5 object-cover rounded-[2px]" />
                   <span className="text-xs">{c}</span>
                 </button>
               ))}

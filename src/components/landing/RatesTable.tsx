@@ -33,9 +33,9 @@ export default function RatesTable() {
                 className={`grid grid-cols-4 px-6 py-4 items-center ${i % 2 === 0 ? "bg-white/3" : ""} hover:bg-white/8 transition-colors`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-xl">{fromInfo.flag}</span>
+                  <img src={fromInfo.flagUrl} alt={fromInfo.country} className="w-6 h-4 object-cover rounded-sm" />
                   <span className="text-white/40 text-sm">→</span>
-                  <span className="text-xl">{toInfo.flag}</span>
+                  <img src={toInfo.flagUrl} alt={toInfo.country} className="w-6 h-4 object-cover rounded-sm" />
                   <div>
                     <p className="text-white font-semibold text-sm">
                       {rate.from_currency} → {rate.to_currency}
