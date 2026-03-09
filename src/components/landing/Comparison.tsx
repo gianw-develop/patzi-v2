@@ -1,7 +1,7 @@
 import { CheckCircle, XCircle, MinusCircle } from "lucide-react";
 
 const ROWS = [
-  { feature: "Comisión por envío", patzi: "Desde €0.99", bank: "€15 – €35", wu: "€5 – €20" },
+  { feature: "Comisión por envío", patzi: "GRATIS", bank: "€15 – €35", wu: "€5 – €20" },
   { feature: "Tasa de cambio", patzi: "Tasa de mercado", bank: "Margen del 3–5%", wu: "Margen del 2–4%" },
   { feature: "Velocidad de entrega", patzi: "30 min – 2 h", bank: "1 – 5 días hábiles", wu: "10 min – 1 día" },
   { feature: "Sin cuenta bancaria destino", patzi: true, bank: false, wu: true },
@@ -12,6 +12,9 @@ const ROWS = [
 
 function Cell({ value }: { value: string | boolean | null }) {
   if (typeof value === "string") {
+    if (value === "GRATIS") {
+      return <span className="text-sm font-bold text-emerald-600 uppercase tracking-wide">{value}</span>;
+    }
     return <span className="text-sm font-medium text-slate-700">{value}</span>;
   }
   if (value === true) return <CheckCircle className="w-5 h-5 text-emerald-500 mx-auto" />;

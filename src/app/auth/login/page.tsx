@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Zap, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { Zap, Eye, EyeOff, AlertCircle, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { useUserStore } from "@/lib/user-store";
 import { useBrandStore } from "@/lib/brand-store";
@@ -140,6 +140,12 @@ export default function LoginPage() {
             </p>
           </CardContent>
         </Card>
+
+        <p className="text-center mt-5">
+          <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-blue-200 hover:text-white transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Volver al inicio
+          </Link>
+        </p>
       </div>
     </div>
   );
