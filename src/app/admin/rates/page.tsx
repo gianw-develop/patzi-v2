@@ -5,7 +5,7 @@ import Header from "@/components/dashboard/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RefreshCw, Save, AlertCircle, Zap } from "lucide-react";
+import { RefreshCw, Save, AlertCircle, Zap, ToggleLeft, ToggleRight } from "lucide-react";
 import { CURRENCY_INFO } from "@/lib/exchange-rates";
 import { useRatesStore, getEffectiveRate, PAIRS, type Pair } from "@/lib/rates-store";
 import { createClient } from "@/lib/supabase";
@@ -25,6 +25,9 @@ export default function AdminRatesPage() {
   );
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
+  const [customRateInputs, setCustomRateInputs] = useState<Record<string, string>>({});
+  const [customRateEnabled, setCustomRateEnabled] = useState<Record<string, boolean>>({});
+  const [savingCustom, setSavingCustom] = useState<Record<string, boolean>>({});
 
   const handleSavePair = async (pair: Pair) => {
     const v = parseFloat(inputs[pair]);
@@ -58,6 +61,10 @@ export default function AdminRatesPage() {
         setMarkups(data.markups);
         setInputs(Object.fromEntries(Object.entries(data.markups).map(([k, v]) => [k, String(v)])));
       }
+      if (data.customRates) {
+        setCustomRateInputs(Object.fromEntries(Object.entries(data.customRates).map(([k, v]) => [k, String(v)])));
+        setCustomRateEnabled(Object.fromEntries(Object.keys(data.customRates).map((k) => [k, true])));
+      }
       toast.success("Tasas actualizadas desde el mercado");
     } catch {
       toast.error("Error al obtener tasas. Usando valores anteriores.");
@@ -69,6 +76,28 @@ export default function AdminRatesPage() {
   useEffect(() => {
     if (Object.keys(liveRates).length === 0) fetchRates();
   }, [liveRates, fetchRates]);
+
+  const handleSaveCustomRate = async (pair: Pair) => {
+    const v = parseFloat(customRateInputs[pair] ?? "");
+    const enabled = customRateEnabled[pair] ?? false;
+    if (enabled && (isNaN(v) || v <= 0)) { toast.error("Introduce una tasa positiva válida"); return; }
+    setSavingCustom((s) => ({ ...s, [pair]: true }));
+    try {
+      const [from, to] = pair.split("-");
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("exchange_rates")
+        .update({ custom_rate: enabled ? v : null, use_custom_rate: enabled })
+        .eq("from_currency", from)
+        .eq("to_currency", to);
+      if (error) throw new Error(error.message);
+      toast.success(enabled ? `Tasa paralela ${pair} = ${v} guardada` : `Tasa paralela ${pair} desactivada`);
+    } catch (err) {
+      toast.error(`Error: ${(err as Error).message}`);
+    } finally {
+      setSavingCustom((s) => ({ ...s, [pair]: false }));
+    }
+  };
 
   const hasRates = Object.keys(liveRates).length > 0;
 
@@ -167,6 +196,53 @@ export default function AdminRatesPage() {
                       Retienes: {(marketRate - effective).toFixed(4)} {to} por unidad
                     </p>
                   )}
+
+                  {/* Custom rate (parallel market) */}
+                  <div className="border-t border-slate-100 pt-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-600">Tasa paralela / manual</p>
+                      <button
+                        onClick={() => setCustomRateEnabled((s) => ({ ...s, [pair]: !s[pair] }))}
+                        className="flex items-center gap-1.5 text-xs"
+                      >
+                        {customRateEnabled[pair]
+                          ? <><ToggleRight className="w-5 h-5 text-emerald-600" /><span className="text-emerald-600 font-medium">Activa</span></>
+                          : <><ToggleLeft className="w-5 h-5 text-slate-400" /><span className="text-slate-400">Desactivada</span></>}
+                      </button>
+                    </div>
+                    {customRateEnabled[pair] && (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={customRateInputs[pair] ?? ""}
+                          onChange={(e) => setCustomRateInputs((s) => ({ ...s, [pair]: e.target.value }))}
+                          className="h-9 font-semibold"
+                          step="0.0001" min="0"
+                          placeholder="Ej: 605"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => handleSaveCustomRate(pair)}
+                          disabled={savingCustom[pair]}
+                          className="h-9 bg-emerald-700 hover:bg-emerald-600 text-white px-3 whitespace-nowrap"
+                        >
+                          <Save className="w-3.5 h-3.5 mr-1" />
+                          {savingCustom[pair] ? "..." : "Guardar"}
+                        </Button>
+                      </div>
+                    )}
+                    {!customRateEnabled[pair] && (
+                      <Button
+                        size="sm" variant="outline"
+                        onClick={() => handleSaveCustomRate(pair)}
+                        disabled={savingCustom[pair]}
+                        className="h-8 text-xs w-full"
+                      >
+                        {savingCustom[pair] ? "..." : "Desactivar y usar API"}
+                      </Button>
+                    )}
+                    <p className="text-[10px] text-slate-400">Cuando está activa, reemplaza la tasa de la API (útil para mercado paralelo VES).</p>
+                  </div>
                 </CardContent>
               </Card>
             );

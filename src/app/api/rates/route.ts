@@ -20,7 +20,15 @@ const DEFAULT_MARKUPS: Record<string, number> = {
   "USD-EUR": 1,
 };
 
-async function getMarkups(): Promise<Record<string, number>> {
+interface DbRow {
+  from_currency: string;
+  to_currency: string;
+  markup_percent: number;
+  custom_rate: number | null;
+  use_custom_rate: boolean | null;
+}
+
+async function getDbRates(): Promise<{ markups: Record<string, number>; customRates: Record<string, number> }> {
   try {
     const sb = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,21 +36,26 @@ async function getMarkups(): Promise<Record<string, number>> {
     );
     const { data, error } = await sb
       .from("exchange_rates")
-      .select("from_currency, to_currency, markup_percent")
+      .select("from_currency, to_currency, markup_percent, custom_rate, use_custom_rate")
       .eq("is_active", true);
-    if (error || !data || data.length === 0) return DEFAULT_MARKUPS;
-    const result: Record<string, number> = { ...DEFAULT_MARKUPS };
-    for (const row of data) {
-      result[`${row.from_currency}-${row.to_currency}`] = Number(row.markup_percent);
+    if (error || !data || data.length === 0) return { markups: DEFAULT_MARKUPS, customRates: {} };
+    const markups: Record<string, number> = { ...DEFAULT_MARKUPS };
+    const customRates: Record<string, number> = {};
+    for (const row of data as DbRow[]) {
+      const key = `${row.from_currency}-${row.to_currency}`;
+      markups[key] = Number(row.markup_percent);
+      if (row.use_custom_rate && row.custom_rate != null) {
+        customRates[key] = Number(row.custom_rate);
+      }
     }
-    return result;
+    return { markups, customRates };
   } catch {
-    return DEFAULT_MARKUPS;
+    return { markups: DEFAULT_MARKUPS, customRates: {} };
   }
 }
 
 export async function GET() {
-  const markups = await getMarkups();
+  const { markups, customRates } = await getDbRates();
 
   try {
     const res = await fetch("https://open.er-api.com/v6/latest/EUR", {
@@ -59,7 +72,7 @@ export async function GET() {
 
     if (!r.USD || !r.PEN) throw new Error("Missing expected currencies");
 
-    const rates: Record<string, number> = {
+    const apiRates: Record<string, number> = {
       "EUR-USD": r.USD,
       "EUR-PEN": r.PEN,
       "EUR-VES": r.VES ?? FALLBACK["EUR-VES"],
@@ -68,16 +81,28 @@ export async function GET() {
       "USD-VES": r.VES ? r.VES / r.USD : FALLBACK["USD-VES"],
     };
 
+    // Override with custom rates where admin has set them (e.g. VES parallel market)
+    const rates: Record<string, number> = { ...apiRates };
+    for (const [pair, customRate] of Object.entries(customRates)) {
+      rates[pair] = customRate;
+    }
+
     return Response.json({
       rates,
       markups,
+      customRates,
       updated_at: data.time_last_update_utc ?? new Date().toISOString(),
       source: "open.er-api.com",
     });
   } catch {
+    const rates = { ...FALLBACK };
+    for (const [pair, customRate] of Object.entries(customRates)) {
+      rates[pair as keyof typeof FALLBACK] = customRate;
+    }
     return Response.json({
-      rates: FALLBACK,
+      rates,
       markups,
+      customRates,
       updated_at: new Date().toISOString(),
       source: "fallback",
     });
