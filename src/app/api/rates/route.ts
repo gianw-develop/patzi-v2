@@ -20,6 +20,18 @@ const DEFAULT_MARKUPS: Record<string, number> = {
   "USD-EUR": 1,
 };
 
+async function getVesParallelRate(): Promise<number | null> {
+  try {
+    const res = await fetch("https://ve.dolarapi.com/v1/dolares", { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json() as Array<{ fuente: string; promedio: number }>;
+    const parallel = data.find((d) => d.fuente === "paralelo");
+    return parallel?.promedio ?? null;
+  } catch {
+    return null;
+  }
+}
+
 interface DbRow {
   from_currency: string;
   to_currency: string;
@@ -55,7 +67,10 @@ async function getDbRates(): Promise<{ markups: Record<string, number>; customRa
 }
 
 export async function GET() {
-  const { markups, customRates } = await getDbRates();
+  const [{ markups, customRates }, vesParallel] = await Promise.all([
+    getDbRates(),
+    getVesParallelRate(),
+  ]);
 
   try {
     const res = await fetch("https://open.er-api.com/v6/latest/EUR", {
@@ -72,16 +87,20 @@ export async function GET() {
 
     if (!r.USD || !r.PEN) throw new Error("Missing expected currencies");
 
+    // Use parallel market VES rate automatically when available
+    const usdVes = vesParallel ?? (r.VES ? r.VES / r.USD : FALLBACK["USD-VES"]);
+    const eurVes = vesParallel ? r.USD * vesParallel : (r.VES ?? FALLBACK["EUR-VES"]);
+
     const apiRates: Record<string, number> = {
       "EUR-USD": r.USD,
       "EUR-PEN": r.PEN,
-      "EUR-VES": r.VES ?? FALLBACK["EUR-VES"],
+      "EUR-VES": eurVes,
       "USD-EUR": 1 / r.USD,
       "USD-PEN": r.PEN / r.USD,
-      "USD-VES": r.VES ? r.VES / r.USD : FALLBACK["USD-VES"],
+      "USD-VES": usdVes,
     };
 
-    // Override with custom rates where admin has set them (e.g. VES parallel market)
+    // Admin manual override has highest priority
     const rates: Record<string, number> = { ...apiRates };
     for (const [pair, customRate] of Object.entries(customRates)) {
       rates[pair] = customRate;
@@ -91,18 +110,25 @@ export async function GET() {
       rates,
       markups,
       customRates,
+      ves_source: vesParallel ? "paralelo" : "oficial",
       updated_at: data.time_last_update_utc ?? new Date().toISOString(),
       source: "open.er-api.com",
     });
   } catch {
-    const rates = { ...FALLBACK };
+    const usdVes = vesParallel ?? FALLBACK["USD-VES"];
+    const rates: Record<string, number> = {
+      ...FALLBACK,
+      "USD-VES": usdVes,
+      "EUR-VES": usdVes * 1.16,
+    };
     for (const [pair, customRate] of Object.entries(customRates)) {
-      rates[pair as keyof typeof FALLBACK] = customRate;
+      rates[pair] = customRate;
     }
     return Response.json({
       rates,
       markups,
       customRates,
+      ves_source: vesParallel ? "paralelo" : "oficial",
       updated_at: new Date().toISOString(),
       source: "fallback",
     });
