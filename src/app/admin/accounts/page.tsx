@@ -34,7 +34,7 @@ const MOBILE_METHODS: Record<Currency, string[]> = {
 
 const EMPTY_FORM: Omit<PaymentAccount, "id"> = {
   currency: "EUR", method_type: "bank", method_name: "Transferencia bancaria",
-  account_holder: "", bank_name: "", iban_account: "", ach_enabled: true, routing_number: "", wire_enabled: false, wire_routing_number: "", account_type: "checking", phone: "", email: "", weekly_limit: 10000,
+  account_holder: "", bank_name: "", iban_account: "", ach_enabled: true, routing_number: "", wire_enabled: false, wire_routing_number: "", account_type: "checking", phone: "", email: "", weekly_limit: 20000,
   instructions: "Solo se aceptan depósitos de titulares de cuenta.", for_deposits: true, for_payouts: true, is_active: true,
 };
 
@@ -116,7 +116,7 @@ export default function AdminAccountsPage() {
   const bankAccounts = tabAccounts.filter((a) => a.method_type === "bank");
   const mobileAccounts = tabAccounts.filter((a) => a.method_type === "mobile");
   const usdReceivingAccounts = accounts.filter((a) => a.currency === "USD" && a.method_type === "bank" && a.for_deposits);
-  const totalWeeklyLimit = usdReceivingAccounts.reduce((sum, account) => sum + Number(account.weekly_limit ?? 10000), 0);
+  const totalWeeklyLimit = usdReceivingAccounts.reduce((sum, account) => sum + Number(account.weekly_limit ?? 20000), 0);
   const totalWeeklyUsed = usdReceivingAccounts.reduce((sum, account) => sum + Number(account.weekly_used ?? 0), 0);
   const totalWeeklyAvailable = Math.max(totalWeeklyLimit - totalWeeklyUsed, 0);
   const totalUtilization = totalWeeklyLimit > 0 ? Math.min((totalWeeklyUsed / totalWeeklyLimit) * 100, 100) : 0;
@@ -323,9 +323,9 @@ export default function AdminAccountsPage() {
                       <Label>Límite semanal de recepción</Label>
                       <div className="relative mt-1.5">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">$</span>
-                        <Input type="number" min="1" step="100" value={form.weekly_limit ?? 10000} onChange={(e) => updateForm("weekly_limit", e.target.value)} className="h-10 pl-7 font-mono" />
+                        <Input type="number" min="1" step="100" value={form.weekly_limit ?? 20000} onChange={(e) => updateForm("weekly_limit", e.target.value)} className="h-10 pl-7 font-mono" />
                       </div>
-                      <p className="mt-1 text-[10px] text-slate-500">El cupo se renueva cada domingo. Recomendado: $10,000 USD.</p>
+                      <p className="mt-1 text-[10px] text-slate-500">El cupo se renueva cada domingo. Límite estándar: $20,000 USD.</p>
                     </div>
                   </div>
                 )}
@@ -404,7 +404,7 @@ interface AccountCardProps {
 
 function AccountCard({ acc, show, onToggleShow, onEdit, onDelete, onToggleActive, onCopy }: AccountCardProps) {
   const showsWeeklyCapacity = acc.currency === "USD" && acc.method_type === "bank" && acc.for_deposits;
-  const weeklyLimit = Number(acc.weekly_limit ?? 10000);
+  const weeklyLimit = Number(acc.weekly_limit ?? 20000);
   const weeklyUsed = Number(acc.weekly_used ?? 0);
   const weeklyAvailable = Number(acc.weekly_available ?? Math.max(weeklyLimit - weeklyUsed, 0));
   const utilization = Math.min(Number(acc.utilization_percent ?? (weeklyUsed / weeklyLimit) * 100), 100);
