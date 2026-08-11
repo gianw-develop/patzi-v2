@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { safeLocalStorage } from "@/lib/safe-storage";
 
 interface ThemeState {
   darkMode: boolean;
@@ -12,6 +13,6 @@ export const useThemeStore = create<ThemeState>()(
       darkMode: false,
       setDarkMode: (v) => set({ darkMode: v }),
     }),
-    { name: "patzi-theme" }
+    { name: "patzi-theme", storage: createJSONStorage(() => safeLocalStorage) }
   )
 );

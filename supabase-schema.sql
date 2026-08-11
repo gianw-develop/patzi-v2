@@ -101,8 +101,10 @@ CREATE TABLE IF NOT EXISTS public.exchange_rates (
   to_currency TEXT NOT NULL CHECK (to_currency IN ('EUR', 'USD', 'PEN', 'VES')),
   rate DECIMAL(18, 6) NOT NULL CHECK (rate > 0),
   markup_percent DECIMAL(5, 2) NOT NULL DEFAULT 1.50,
-  fee_fixed DECIMAL(10, 2) NOT NULL DEFAULT 2.99,
+  fee_fixed DECIMAL(10, 2) NOT NULL DEFAULT 0,
   fee_percent DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
+  custom_rate DECIMAL(18, 6),
+  use_custom_rate BOOLEAN NOT NULL DEFAULT FALSE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (from_currency, to_currency)
@@ -147,14 +149,17 @@ CREATE TABLE IF NOT EXISTS public.transfer_status_history (
 
 -- Auto-generate reference
 CREATE OR REPLACE FUNCTION public.generate_transfer_reference()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
 BEGIN
   IF NEW.reference IS NULL OR NEW.reference = '' THEN
-    NEW.reference := 'PTZ-' || TO_CHAR(NOW(), 'YYYY') || '-' || LPAD(NEXTVAL('transfer_ref_seq')::TEXT, 6, '0');
+    NEW.reference := 'PTZ-' || TO_CHAR(NOW(), 'YYYY') || '-' || LPAD(NEXTVAL('public.transfer_ref_seq'::REGCLASS)::TEXT, 6, '0');
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE SEQUENCE IF NOT EXISTS transfer_ref_seq START 1000;
 
@@ -165,20 +170,23 @@ CREATE TRIGGER set_transfer_reference
 
 -- Auto-insert status history on transfer create/update
 CREATE OR REPLACE FUNCTION public.log_transfer_status()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
 BEGIN
-  IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND NEW.status <> OLD.status) THEN
+  IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND NEW.status IS DISTINCT FROM OLD.status) THEN
     INSERT INTO public.transfer_status_history (transfer_id, status)
     VALUES (NEW.id, NEW.status);
-    NEW.updated_at := NOW();
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 DROP TRIGGER IF EXISTS log_transfer_status_change ON public.transfers;
 CREATE TRIGGER log_transfer_status_change
-  BEFORE INSERT OR UPDATE ON public.transfers
+  AFTER INSERT OR UPDATE OF status ON public.transfers
   FOR EACH ROW EXECUTE FUNCTION public.log_transfer_status();
 
 -- ============================================================
@@ -192,19 +200,33 @@ ALTER TABLE public.transfers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.transfer_status_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.exchange_rates ENABLE ROW LEVEL SECURITY;
 
+-- Evaluate the admin role without recursively invoking the profiles policies.
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE SQL
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated;
+
 -- Profiles
 CREATE POLICY "Users can view own profile" ON public.profiles FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
-CREATE POLICY "Admins can view all profiles" ON public.profiles FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-);
+CREATE POLICY "Admins can view all profiles" ON public.profiles FOR ALL USING (public.is_admin());
 
 -- Wallets
 CREATE POLICY "Users can view own wallets" ON public.wallets FOR SELECT USING (user_id = auth.uid());
 CREATE POLICY "Users can update own wallets" ON public.wallets FOR UPDATE USING (user_id = auth.uid());
-CREATE POLICY "Admins manage all wallets" ON public.wallets FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-);
+CREATE POLICY "Admins manage all wallets" ON public.wallets FOR ALL USING (public.is_admin());
 
 -- Wallet transactions
 CREATE POLICY "Users can view own wallet transactions" ON public.wallet_transactions FOR SELECT USING (
@@ -217,9 +239,7 @@ CREATE POLICY "Users can manage own beneficiaries" ON public.beneficiaries FOR A
 -- Transfers
 CREATE POLICY "Users can view own transfers" ON public.transfers FOR SELECT USING (user_id = auth.uid());
 CREATE POLICY "Users can create transfers" ON public.transfers FOR INSERT WITH CHECK (user_id = auth.uid());
-CREATE POLICY "Admins manage all transfers" ON public.transfers FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-);
+CREATE POLICY "Admins manage all transfers" ON public.transfers FOR ALL USING (public.is_admin());
 
 -- Transfer history
 CREATE POLICY "Users can view own transfer history" ON public.transfer_status_history FOR SELECT USING (
@@ -228,22 +248,20 @@ CREATE POLICY "Users can view own transfer history" ON public.transfer_status_hi
 
 -- Exchange rates (public read)
 CREATE POLICY "Anyone can view exchange rates" ON public.exchange_rates FOR SELECT USING (TRUE);
-CREATE POLICY "Only admins can modify rates" ON public.exchange_rates FOR ALL USING (
-  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
-);
+CREATE POLICY "Only admins can modify rates" ON public.exchange_rates FOR ALL USING (public.is_admin());
 
 -- ============================================================
 -- SEED: Initial exchange rates
 -- ============================================================
 INSERT INTO public.exchange_rates (from_currency, to_currency, rate, markup_percent, fee_fixed) VALUES
-  ('EUR', 'USD', 1.085,  0.5,  0.99),
-  ('EUR', 'PEN', 4.120,  1.5,  2.99),
-  ('EUR', 'VES', 39.500, 2.0,  3.99),
-  ('USD', 'EUR', 0.921,  0.5,  0.99),
-  ('USD', 'PEN', 3.790,  1.2,  1.99),
-  ('USD', 'VES', 36.400, 2.0,  2.99),
-  ('PEN', 'USD', 0.263,  1.2,  1.99),
-  ('PEN', 'EUR', 0.242,  1.5,  2.99),
-  ('VES', 'USD', 0.0274, 2.0,  2.99),
-  ('VES', 'EUR', 0.0253, 2.0,  3.99)
+  ('EUR', 'USD', 1.085,  0.5,  0),
+  ('EUR', 'PEN', 4.120,  1.5,  0),
+  ('EUR', 'VES', 39.500, 2.0,  0),
+  ('USD', 'EUR', 0.921,  0.5,  0),
+  ('USD', 'PEN', 3.790,  1.2,  0),
+  ('USD', 'VES', 36.400, 2.0,  0),
+  ('PEN', 'USD', 0.263,  1.2,  0),
+  ('PEN', 'EUR', 0.242,  1.5,  0),
+  ('VES', 'USD', 0.0274, 2.0,  0),
+  ('VES', 'EUR', 0.0253, 2.0,  0)
 ON CONFLICT (from_currency, to_currency) DO NOTHING;

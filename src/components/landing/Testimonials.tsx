@@ -55,7 +55,7 @@ export default function Testimonials() {
                   <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
                 ))}
               </div>
-              <p className="text-sm text-slate-600 flex-1 leading-relaxed">"{t.text}"</p>
+              <p className="text-sm text-slate-600 flex-1 leading-relaxed">&ldquo;{t.text}&rdquo;</p>
               <div className="flex items-center gap-3 pt-2 border-t border-slate-200">
                 <div className={`w-9 h-9 rounded-full ${t.color} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
                   {t.initials}

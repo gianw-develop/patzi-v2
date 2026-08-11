@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,12 +12,12 @@ import {
   Plus, User, Trash2, Edit2, Building2, Smartphone, Send,
   CheckCircle2, ChevronRight, CreditCard, Phone, Mail, IdCard,
 } from "lucide-react";
-import { MOCK_BENEFICIARIES } from "@/lib/mock-data";
 import { CURRENCY_INFO } from "@/lib/exchange-rates";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import type { Beneficiary, DeliveryMethod, Currency } from "@/types";
+import { createClient } from "@/lib/supabase";
 
 // ─── Country config ────────────────────────────────────────────────────────────
 const COUNTRIES = [
@@ -48,7 +48,7 @@ const METHODS_BY_COUNTRY: Record<string, MethodOption[]> = {
     { value: "mobile_money", app: "Pagomóvil", label: "Pagomóvil", desc: "Pago interbancario instantáneo por número de teléfono", icon: Smartphone, color: "bg-red-50 text-red-700 border-red-200" },
   ],
   US: [
-    { value: "bank",         app: "Transferencia bancaria", label: "Depósito bancario", desc: "ACH/SWIFT a cuenta bancaria en dólares", icon: Building2,  color: "bg-blue-50 text-blue-700 border-blue-200" },
+    { value: "bank",         app: "Transferencia bancaria", label: "Depósito bancario", desc: "ACH o Wire a cuenta bancaria en dólares", icon: Building2,  color: "bg-blue-50 text-blue-700 border-blue-200" },
     { value: "mobile_money", app: "Zelle", label: "Zelle",  desc: "Envío instantáneo por teléfono o correo electrónico", icon: Smartphone, color: "bg-indigo-50 text-indigo-700 border-indigo-200" },
   ],
   ES: [
@@ -76,10 +76,26 @@ const avatarColor = (id: string) => AVATAR_COLORS[id.charCodeAt(id.length - 1) %
 
 // ══════════════════════════════════════════════════════════════════════════════
 export default function BeneficiariesPage() {
-  const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>(MOCK_BENEFICIARIES);
+  const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Beneficiary | null>(null);
   const [form, setForm] = useState({ ...EMPTY });
+
+  const loadBeneficiaries = useCallback(async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("beneficiaries")
+      .select("id, user_id, full_name, country, currency, delivery_method, delivery_app, bank_name, account_number, phone, email, cedula, created_at")
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+    if (error) { toast.error("No se pudieron cargar los beneficiarios."); return; }
+    setBeneficiaries((data ?? []) as Beneficiary[]);
+  }, []);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void loadBeneficiaries(), 0);
+    return () => window.clearTimeout(initial);
+  }, [loadBeneficiaries]);
 
   const upd = (field: string, value: string) => setForm((p) => ({ ...p, [field]: value }));
 
@@ -121,23 +137,31 @@ export default function BeneficiariesPage() {
     setOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.full_name.trim()) { toast.error("El nombre del beneficiario es obligatorio"); return; }
     if (form.delivery_method === "bank" && !form.account_number.trim()) { toast.error("El número de cuenta es obligatorio"); return; }
     if (form.delivery_method === "mobile_money" && !form.phone.trim()) { toast.error("El teléfono es obligatorio"); return; }
-    if (editing) {
-      setBeneficiaries((p) => p.map((b) => b.id === editing.id ? { ...b, ...form } : b));
-      toast.success("Beneficiario actualizado correctamente");
-    } else {
-      const newB: Beneficiary = { id: `b${Date.now()}`, user_id: "u1", ...form, created_at: new Date().toISOString() };
-      setBeneficiaries((p) => [...p, newB]);
-      toast.success("Beneficiario añadido correctamente");
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error("Tu sesión ha caducado."); return; }
+    const payload = { ...form, full_name: form.full_name.trim() };
+    const result = editing
+      ? await supabase.from("beneficiaries").update(payload).eq("id", editing.id)
+      : await supabase.from("beneficiaries").insert({ ...payload, user_id: user.id });
+    if (result.error) {
+      toast.error(result.error.message);
+      return;
     }
+    toast.success(editing ? "Beneficiario actualizado correctamente" : "Beneficiario añadido correctamente");
+    await loadBeneficiaries();
     setOpen(false);
   };
 
-  const handleDelete = (id: string) => {
-    setBeneficiaries((p) => p.filter((b) => b.id !== id));
+  const handleDelete = async (id: string) => {
+    const supabase = createClient();
+    const { error } = await supabase.from("beneficiaries").update({ is_active: false }).eq("id", id);
+    if (error) { toast.error(error.message); return; }
+    await loadBeneficiaries();
     toast.success("Beneficiario eliminado");
   };
 
@@ -195,7 +219,7 @@ export default function BeneficiariesPage() {
                           <Button size="icon" variant="ghost" className="w-8 h-8" onClick={() => openEdit(b)}>
                             <Edit2 className="w-3.5 h-3.5 text-slate-400" />
                           </Button>
-                          <Button size="icon" variant="ghost" className="w-8 h-8" onClick={() => handleDelete(b.id)}>
+                          <Button size="icon" variant="ghost" className="w-8 h-8" onClick={() => void handleDelete(b.id)}>
                             <Trash2 className="w-3.5 h-3.5 text-red-400" />
                           </Button>
                         </div>
@@ -470,7 +494,7 @@ export default function BeneficiariesPage() {
             <Button variant="outline" onClick={() => setOpen(false)} className="flex-1 h-11">
               Cancelar
             </Button>
-            <Button onClick={handleSave} className="flex-1 h-11 bg-blue-900 hover:bg-blue-800 text-white font-semibold">
+            <Button onClick={() => void handleSave()} className="flex-1 h-11 bg-blue-900 hover:bg-blue-800 text-white font-semibold">
               {editing ? "Guardar cambios" : "Añadir beneficiario"}
               <ChevronRight className="w-4 h-4 ml-1" />
             </Button>

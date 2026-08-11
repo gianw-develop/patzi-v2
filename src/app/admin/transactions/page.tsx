@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,12 +15,12 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MOCK_TRANSFERS, MOCK_USERS } from "@/lib/mock-data";
 import { CURRENCY_INFO } from "@/lib/exchange-rates";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import type { Transfer, TransferStatus } from "@/types";
+import { signedRemittanceProof, useTransferStore } from "@/lib/transfer-store";
 
 const STATUS_CONFIG: Record<TransferStatus, { label: string; color: string; icon: React.ElementType }> = {
   pending: { label: "Pendiente", color: "bg-yellow-100 text-yellow-700 border-yellow-200", icon: Clock },
@@ -31,14 +31,20 @@ const STATUS_CONFIG: Record<TransferStatus, { label: string; color: string; icon
 };
 
 export default function AdminTransactionsPage() {
-  const [transfers, setTransfers] = useState<Transfer[]>(MOCK_TRANSFERS);
+  const { transfers, loadTransfers, updateStatus, completeWithProof } = useTransferStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState<Transfer | null>(null);
   const [proofDialog, setProofDialog] = useState<Transfer | null>(null);
   const [proofNote, setProofNote] = useState("");
-  const [proofFile, setProofFile] = useState<string | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofUploading, setProofUploading] = useState(false);
+
+  useEffect(() => {
+    void loadTransfers("admin");
+    const interval = window.setInterval(() => void loadTransfers("admin"), 10_000);
+    return () => window.clearInterval(interval);
+  }, [loadTransfers]);
 
   const filtered = transfers.filter((t) => {
     const matchSearch =
@@ -48,25 +54,14 @@ export default function AdminTransactionsPage() {
     return matchSearch && matchStatus;
   });
 
-  const changeStatus = (id: string, newStatus: TransferStatus, proofUrl?: string, note?: string) => {
-    setTransfers((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              status: newStatus,
-              proof_url: proofUrl ?? t.proof_url,
-              proof_note: note ?? t.proof_note,
-              status_history: [
-                ...t.status_history,
-                { status: newStatus, timestamp: new Date().toISOString(), note: note || "Actualizado por admin" },
-              ],
-            }
-          : t
-      )
-    );
-    toast.success(`Estado actualizado a: ${STATUS_CONFIG[newStatus].label}`);
-    setSelected(null);
+  const changeStatus = async (id: string, newStatus: TransferStatus, note?: string) => {
+    try {
+      await updateStatus(id, newStatus, note);
+      toast.success(`Estado actualizado a: ${STATUS_CONFIG[newStatus].label}`);
+      setSelected(null);
+    } catch (statusError) {
+      toast.error(statusError instanceof Error ? statusError.message : "No se pudo actualizar la remesa.");
+    }
   };
 
   const handleOpenProofDialog = (t: Transfer) => {
@@ -80,20 +75,31 @@ export default function AdminTransactionsPage() {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { toast.error("El archivo no puede superar 5 MB"); return; }
     setProofUploading(true);
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setProofFile(ev.target?.result as string);
-      setProofUploading(false);
-    };
-    reader.readAsDataURL(file);
+    setProofFile(file);
+    setProofUploading(false);
   };
 
-  const handleCompleteWithProof = () => {
+  const handleCompleteWithProof = async () => {
     if (!proofDialog) return;
-    const url = proofFile || `https://placehold.co/600x400/e8f5e9/2e7d32?text=Comprobante+${proofDialog.reference}`;
-    changeStatus(proofDialog.id, "completed", url, proofNote || "Pago completado y verificado por el equipo Patzi");
-    setProofDialog(null);
-    toast.success("Transferencia completada con comprobante adjunto");
+    if (!proofFile) { toast.error("Adjunta el comprobante de pago."); return; }
+    setProofUploading(true);
+    try {
+      await completeWithProof(proofDialog.id, proofFile, proofNote || "Pago completado y verificado por el equipo Patzi");
+      setProofDialog(null);
+      toast.success("Transferencia completada con comprobante adjunto");
+    } catch (proofError) {
+      toast.error(proofError instanceof Error ? proofError.message : "No se pudo completar la transferencia.");
+    } finally {
+      setProofUploading(false);
+    }
+  };
+
+  const openProof = async (path: string) => {
+    try {
+      window.open(await signedRemittanceProof(path), "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error("No se pudo abrir el comprobante privado.");
+    }
   };
 
   const totalVolume = filtered.reduce((acc, t) => acc + t.send_amount, 0);
@@ -159,7 +165,6 @@ export default function AdminTransactionsPage() {
                 {filtered.map((t) => {
                   const cfg = STATUS_CONFIG[t.status];
                   const StatusIcon = cfg.icon;
-                  const user = MOCK_USERS.find((u) => u.id === t.user_id);
                   const fromInfo = CURRENCY_INFO[t.send_currency];
                   const toInfo = CURRENCY_INFO[t.receive_currency];
                   return (
@@ -168,7 +173,7 @@ export default function AdminTransactionsPage() {
                         <p className="text-xs font-mono text-blue-700 font-semibold">{t.reference}</p>
                         <p className="text-xs text-slate-400">{format(new Date(t.created_at), "d MMM HH:mm", { locale: es })}</p>
                       </td>
-                      <td className="px-4 py-3 text-sm text-slate-700 font-medium">{user?.full_name || "—"}</td>
+                      <td className="px-4 py-3 text-sm text-slate-700 font-medium">{t.customer_name || "—"}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 text-lg">
                           <span>{fromInfo.flag}</span>
@@ -212,7 +217,7 @@ export default function AdminTransactionsPage() {
                               <Eye className="w-3.5 h-3.5 mr-2" /> Ver detalle
                             </DropdownMenuItem>
                             {t.status === "pending" && (
-                              <DropdownMenuItem onClick={() => changeStatus(t.id, "processing")} className="cursor-pointer text-blue-600">
+                              <DropdownMenuItem onClick={() => void changeStatus(t.id, "processing")} className="cursor-pointer text-blue-600">
                                 <RefreshCw className="w-3.5 h-3.5 mr-2" /> Marcar procesando
                               </DropdownMenuItem>
                             )}
@@ -222,7 +227,7 @@ export default function AdminTransactionsPage() {
                               </DropdownMenuItem>
                             )}
                             {["pending", "processing"].includes(t.status) && (
-                              <DropdownMenuItem onClick={() => changeStatus(t.id, "failed")} className="cursor-pointer text-red-600">
+                              <DropdownMenuItem onClick={() => void changeStatus(t.id, "failed")} className="cursor-pointer text-red-600">
                                 <AlertCircle className="w-3.5 h-3.5 mr-2" /> Marcar fallido
                               </DropdownMenuItem>
                             )}
@@ -306,15 +311,15 @@ export default function AdminTransactionsPage() {
                     <p className="text-xs font-semibold text-emerald-800">Comprobante adjunto</p>
                   </div>
                   {selected.proof_note && <p className="text-xs text-emerald-700">{selected.proof_note}</p>}
-                  <a href={selected.proof_url} target="_blank" rel="noopener noreferrer"
+                  <button onClick={() => void openProof(selected.proof_url!)}
                     className="flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 underline">
                     <ExternalLink className="w-3 h-3" /> Ver comprobante
-                  </a>
+                  </button>
                 </div>
               )}
               <div className="flex gap-2 pt-2">
                 {selected.status === "pending" && (
-                  <Button size="sm" onClick={() => changeStatus(selected.id, "processing")} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs">
+                  <Button size="sm" onClick={() => void changeStatus(selected.id, "processing")} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs">
                     Marcar procesando
                   </Button>
                 )}
@@ -389,7 +394,7 @@ export default function AdminTransactionsPage() {
               <div className="flex gap-2 pt-1">
                 <Button variant="outline" onClick={() => setProofDialog(null)} className="flex-1">Cancelar</Button>
                 <Button
-                  onClick={handleCompleteWithProof}
+                  onClick={() => void handleCompleteWithProof()}
                   disabled={proofUploading}
                   className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
                 >

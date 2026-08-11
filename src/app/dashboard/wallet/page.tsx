@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,14 +12,13 @@ import {
   Plus, ArrowUpRight, ArrowDownLeft, TrendingUp, Wallet,
   Building2, CheckCircle2, Smartphone, Clock, Upload, FileImage, X,
 } from "lucide-react";
-import { MOCK_WALLETS, MOCK_WALLET_TRANSACTIONS } from "@/lib/mock-data";
 import { CURRENCY_INFO } from "@/lib/exchange-rates";
 import { useDepositStore } from "@/lib/deposit-store";
-import { useUserStore } from "@/lib/user-store";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
-import type { WalletCurrency } from "@/types";
+import type { Wallet as WalletType, WalletCurrency, WalletTransaction } from "@/types";
+import { createClient } from "@/lib/supabase";
 
 const TX_TYPE_CONFIG = {
   deposit: { label: "Recarga", icon: ArrowDownLeft, color: "text-emerald-600", bg: "bg-emerald-50", sign: "+" },
@@ -31,7 +30,8 @@ const TX_TYPE_CONFIG = {
 const PENDING_DEPOSITS_KEY = "patzi-pending-deposit-ids";
 
 export default function WalletPage() {
-  const wallets = MOCK_WALLETS;
+  const [wallets, setWallets] = useState<WalletType[]>([]);
+  const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [depositOpen, setDepositOpen] = useState(false);
   const [depositCurrency, setDepositCurrency] = useState<WalletCurrency>("EUR");
   const [depositAmount, setDepositAmount] = useState("");
@@ -41,11 +41,21 @@ export default function WalletPage() {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const addRequest = useDepositStore((s) => s.addRequest);
-  const allRequests = useDepositStore((s) => s.requests);
-  const { full_name, email } = useUserStore();
+  const { addRequest, requests: allRequests, loadRequests } = useDepositStore();
 
-  const transactions = MOCK_WALLET_TRANSACTIONS;
+  useEffect(() => {
+    const loadWallet = async () => {
+      const supabase = createClient();
+      const [walletResult, transactionResult] = await Promise.all([
+        supabase.from("wallets").select("id, user_id, currency, balance, is_active, created_at").order("currency"),
+        supabase.from("wallet_transactions").select("id, wallet_id, type, amount, currency, description, created_at").order("created_at", { ascending: false }),
+      ]);
+      if (!walletResult.error) setWallets((walletResult.data ?? []).map((wallet) => ({ ...wallet, balance: Number(wallet.balance) })) as WalletType[]);
+      if (!transactionResult.error) setTransactions((transactionResult.data ?? []).map((transaction) => ({ ...transaction, amount: Number(transaction.amount) })) as WalletTransaction[]);
+    };
+    void loadWallet();
+    void loadRequests("user");
+  }, [loadRequests]);
 
   const handleProofChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
@@ -68,25 +78,23 @@ export default function WalletPage() {
     if (isNaN(amt) || amt <= 0) { toast.error("Ingresa un monto válido"); return; }
     if (!proofFile || !proofDataUrl) { toast.error("Adjunta el comprobante de pago"); return; }
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 900));
     const methodLabel = depositMethod === "bank"
       ? (depositCurrency === "EUR" ? "Transferencia SEPA" : "Transferencia ACH")
       : (depositCurrency === "EUR" ? "Bizum" : "Zelle");
-    addRequest({
-      id: `dep${Date.now()}`,
-      user_id: email || "unknown",
-      user_name: full_name || "Usuario",
-      currency: depositCurrency,
-      amount: amt,
-      method: depositMethod,
-      method_label: methodLabel,
-      proof_file_name: proofFile.name,
-      proof_data_url: proofDataUrl,
-      status: "pending",
-      created_at: new Date().toISOString(),
-    });
-    setLoading(false);
-    setDone(true);
+    try {
+      await addRequest({
+        currency: depositCurrency,
+        amount: amt,
+        method: depositMethod,
+        method_label: methodLabel,
+        file: proofFile,
+      });
+      setDone(true);
+    } catch (depositError) {
+      toast.error(depositError instanceof Error ? depositError.message : "No se pudo enviar el comprobante.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const closeModal = () => {

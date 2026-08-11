@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,7 @@ import {
   Search, CheckCircle2, Clock, RefreshCw, AlertCircle,
   ArrowRight, Zap, Filter, FileCheck2, ExternalLink,
 } from "lucide-react";
-import { useTransferStore } from "@/lib/transfer-store";
+import { signedRemittanceProof, useTransferStore } from "@/lib/transfer-store";
 import { CURRENCY_INFO } from "@/lib/exchange-rates";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -31,7 +31,22 @@ export default function HistoryPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<Transfer | null>(null);
-  const allTransfers = useTransferStore((s) => s.transfers);
+  const { transfers: allTransfers, loadTransfers } = useTransferStore();
+
+  useEffect(() => {
+    void loadTransfers("user");
+    const interval = window.setInterval(() => void loadTransfers("user"), 15_000);
+    return () => window.clearInterval(interval);
+  }, [loadTransfers]);
+
+  const openProof = async (path: string) => {
+    try {
+      const url = await signedRemittanceProof(path);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      // The private proof remains inaccessible when signing fails.
+    }
+  };
 
   const transfers = allTransfers.filter((t) => {
     const matchSearch = t.beneficiary_name.toLowerCase().includes(search.toLowerCase())
@@ -217,14 +232,12 @@ export default function HistoryPage() {
                   {selected.proof_note && (
                     <p className="text-xs text-emerald-700 leading-relaxed">{selected.proof_note}</p>
                   )}
-                  <a
-                    href={selected.proof_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={() => void openProof(selected.proof_url!)}
                     className="flex items-center gap-2 text-xs font-semibold text-emerald-700 hover:text-emerald-900 underline underline-offset-2"
                   >
                     <ExternalLink className="w-3.5 h-3.5" /> Ver comprobante de pago
-                  </a>
+                  </button>
                 </div>
               )}
 

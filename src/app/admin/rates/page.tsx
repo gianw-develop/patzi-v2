@@ -5,8 +5,8 @@ import Header from "@/components/dashboard/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FlagMark, type FlagCountry } from "@/components/brand/FinancialMarks";
 import { RefreshCw, Save, AlertCircle, Zap, ToggleLeft, ToggleRight } from "lucide-react";
-import { CURRENCY_INFO } from "@/lib/exchange-rates";
 import { useRatesStore, getEffectiveRate, PAIRS, type Pair } from "@/lib/rates-store";
 import { createClient } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -18,8 +18,15 @@ const PAIR_META = PAIRS.map((pair) => {
   return { pair: pair as Pair, from, to };
 });
 
+const FLAG_BY_CURRENCY: Record<string, FlagCountry> = {
+  EUR: "ES",
+  USD: "US",
+  PEN: "PE",
+  VES: "VE",
+};
+
 export default function AdminRatesPage() {
-  const { markups, setMarkup, setMarkups, liveRates, lastUpdated, source, setLiveRates } = useRatesStore();
+  const { markups, setMarkup, setMarkups, fees, activePairs, setPricing, liveRates, lastUpdated, source, setLiveRates } = useRatesStore();
   const [inputs, setInputs] = useState<Record<string, string>>(
     () => Object.fromEntries(PAIRS.map((p) => [p, String(markups[p as Pair] ?? 0)]))
   );
@@ -28,22 +35,41 @@ export default function AdminRatesPage() {
   const [customRateInputs, setCustomRateInputs] = useState<Record<string, string>>({});
   const [customRateEnabled, setCustomRateEnabled] = useState<Record<string, boolean>>({});
   const [savingCustom, setSavingCustom] = useState<Record<string, boolean>>({});
+  const [feeFixedInputs, setFeeFixedInputs] = useState<Record<string, string>>(
+    () => Object.fromEntries(PAIRS.map((p) => [p, String(fees[p]?.fixed ?? 0)]))
+  );
+  const [feePercentInputs, setFeePercentInputs] = useState<Record<string, string>>(
+    () => Object.fromEntries(PAIRS.map((p) => [p, String(fees[p]?.percent ?? 0)]))
+  );
+  const [activeInputs, setActiveInputs] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(PAIRS.map((p) => [p, activePairs.includes(p)]))
+  );
 
   const handleSavePair = async (pair: Pair) => {
     const v = parseFloat(inputs[pair]);
+    const fixedFee = parseFloat(feeFixedInputs[pair] ?? "0");
+    const percentFee = parseFloat(feePercentInputs[pair] ?? "0");
     if (isNaN(v) || v < -50 || v > 50) { toast.error("Introduce un margen entre -50% y 50%"); return; }
+    if (isNaN(fixedFee) || fixedFee < 0 || fixedFee > 10000) { toast.error("La comisión fija debe estar entre 0 y 10.000"); return; }
+    if (isNaN(percentFee) || percentFee < 0 || percentFee > 50) { toast.error("La comisión porcentual debe estar entre 0% y 50%"); return; }
     setSaving((s) => ({ ...s, [pair]: true }));
     try {
       const [from, to] = pair.split("-");
       const supabase = createClient();
       const { error } = await supabase
         .from("exchange_rates")
-        .update({ markup_percent: v })
+        .update({
+          markup_percent: v,
+          fee_fixed: fixedFee,
+          fee_percent: percentFee,
+          updated_at: new Date().toISOString(),
+        })
         .eq("from_currency", from)
         .eq("to_currency", to);
       if (error) throw new Error(error.message);
       setMarkup(pair, v);
-      toast.success(`Margen ${pair} actualizado a ${v}%`);
+      setPricing({ ...fees, [pair]: { fixed: fixedFee, percent: percentFee } }, activePairs);
+      toast.success(`Precio ${pair} actualizado`);
     } catch (err) {
       toast.error(`Error guardando: ${(err as Error).message}`);
     } finally {
@@ -61,6 +87,14 @@ export default function AdminRatesPage() {
         setMarkups(data.markups);
         setInputs(Object.fromEntries(Object.entries(data.markups).map(([k, v]) => [k, String(v)])));
       }
+      if (data.fees) {
+        setFeeFixedInputs(Object.fromEntries(Object.entries(data.fees).map(([key, value]) => [key, String((value as { fixed: number }).fixed)])));
+        setFeePercentInputs(Object.fromEntries(Object.entries(data.fees).map(([key, value]) => [key, String((value as { percent: number }).percent)])));
+      }
+      if (data.activePairs) {
+        setActiveInputs(Object.fromEntries(PAIRS.map((pair) => [pair, data.activePairs.includes(pair)])));
+      }
+      setPricing(data.fees ?? {}, data.activePairs ?? []);
       if (data.customRates) {
         setCustomRateInputs(Object.fromEntries(Object.entries(data.customRates).map(([k, v]) => [k, String(v)])));
         setCustomRateEnabled(Object.fromEntries(Object.keys(data.customRates).map((k) => [k, true])));
@@ -71,7 +105,7 @@ export default function AdminRatesPage() {
     } finally {
       setLoading(false);
     }
-  }, [setLiveRates]);
+  }, [setLiveRates, setMarkups, setPricing]);
 
   useEffect(() => {
     if (Object.keys(liveRates).length === 0) fetchRates();
@@ -87,7 +121,7 @@ export default function AdminRatesPage() {
       const supabase = createClient();
       const { error } = await supabase
         .from("exchange_rates")
-        .update({ custom_rate: enabled ? v : null, use_custom_rate: enabled })
+        .update({ custom_rate: enabled ? v : null, use_custom_rate: enabled, updated_at: new Date().toISOString() })
         .eq("from_currency", from)
         .eq("to_currency", to);
       if (error) throw new Error(error.message);
@@ -96,6 +130,29 @@ export default function AdminRatesPage() {
       toast.error(`Error: ${(err as Error).message}`);
     } finally {
       setSavingCustom((s) => ({ ...s, [pair]: false }));
+    }
+  };
+
+  const handleTogglePair = async (pair: Pair) => {
+    const nextValue = !(activeInputs[pair] ?? true);
+    setActiveInputs((state) => ({ ...state, [pair]: nextValue }));
+    try {
+      const [from, to] = pair.split("-");
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("exchange_rates")
+        .update({ is_active: nextValue, updated_at: new Date().toISOString() })
+        .eq("from_currency", from)
+        .eq("to_currency", to);
+      if (error) throw new Error(error.message);
+      const nextActivePairs = nextValue
+        ? Array.from(new Set([...activePairs, pair]))
+        : activePairs.filter((item) => item !== pair);
+      setPricing(fees, nextActivePairs);
+      toast.success(`${pair} ${nextValue ? "activado" : "pausado"}`);
+    } catch (error) {
+      setActiveInputs((state) => ({ ...state, [pair]: !nextValue }));
+      toast.error(`No se pudo actualizar: ${(error as Error).message}`);
     }
   };
 
@@ -138,8 +195,6 @@ export default function AdminRatesPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {PAIR_META.map(({ pair, from, to }) => {
-            const fromInfo = CURRENCY_INFO[from as keyof typeof CURRENCY_INFO];
-            const toInfo = CURRENCY_INFO[to as keyof typeof CURRENCY_INFO];
             const marketRate = liveRates[pair];
             const effective = marketRate ? getEffectiveRate(pair, liveRates, markups) : null;
             const pairMarkup = markups[pair] ?? 0;
@@ -147,13 +202,17 @@ export default function AdminRatesPage() {
               <Card key={pair} className="border-0 shadow-sm">
                 <CardContent className="p-5 space-y-3">
                   <div className="flex items-center gap-2">
-                    <img src={fromInfo?.flagUrl} alt={from} className="w-6 h-4 object-cover rounded-sm" />
+                    <FlagMark country={FLAG_BY_CURRENCY[from]} className="h-4 w-6" />
                     <span className="text-slate-300">→</span>
-                    <img src={toInfo?.flagUrl} alt={to} className="w-6 h-4 object-cover rounded-sm" />
+                    <FlagMark country={FLAG_BY_CURRENCY[to]} className="h-4 w-6" />
                     <span className="font-bold text-slate-700 ml-1">{from} / {to}</span>
+                    <button type="button" onClick={() => handleTogglePair(pair)} className="ml-auto flex items-center gap-1.5 text-xs">
+                      {activeInputs[pair] ? <><ToggleRight className="h-5 w-5 text-emerald-600" /><span className="font-medium text-emerald-700">Activo</span></> : <><ToggleLeft className="h-5 w-5 text-slate-400" /><span className="text-slate-400">Pausado</span></>}
+                    </button>
                   </div>
 
                   {/* Markup input per pair */}
+                  <p className="text-[11px] font-semibold uppercase tracking-[.12em] text-slate-400">Margen Patzi</p>
                   <div className="flex items-center gap-2">
                     <div className="relative flex-1">
                       <Input
@@ -176,7 +235,15 @@ export default function AdminRatesPage() {
                       {saving[pair] ? "..." : "Guardar"}
                     </Button>
                   </div>
-                  <p className="text-[11px] text-slate-400">Margen actual: <strong className="text-slate-600">{pairMarkup}%</strong></p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1 text-[10px] font-medium text-slate-500">Comisión fija ({from})
+                      <Input type="number" min="0" step="0.01" value={feeFixedInputs[pair] ?? "0"} onChange={(event) => setFeeFixedInputs((state) => ({ ...state, [pair]: event.target.value }))} className="h-9 font-semibold" />
+                    </label>
+                    <label className="space-y-1 text-[10px] font-medium text-slate-500">Comisión porcentual
+                      <div className="relative"><Input type="number" min="0" max="50" step="0.1" value={feePercentInputs[pair] ?? "0"} onChange={(event) => setFeePercentInputs((state) => ({ ...state, [pair]: event.target.value }))} className="h-9 pr-7 font-semibold" /><span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span></div>
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-slate-400">El margen se incluye en la tasa; la comisión se descuenta del monto antes de convertir.</p>
 
                   <div className="bg-slate-50 rounded-xl p-3">
                     <p className="text-[11px] text-slate-400 uppercase tracking-wide mb-0.5">Tasa de mercado</p>

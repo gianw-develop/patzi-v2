@@ -1,124 +1,73 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  Send,
-  Wallet,
-  History,
-  Users,
-  Settings,
-  Zap,
-  LogOut,
-  ChevronRight,
-  ShieldCheck,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { usePathname, useRouter } from "next/navigation";
+import { CircleHelp, ContactRound, FileText, History, LogOut, Send, Settings, UserRound, Users, WalletCards } from "lucide-react";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
-import { useBrandStore } from "@/lib/brand-store";
+import PathlineLogo from "@/components/brand/PathlineLogo";
+import { cn } from "@/lib/utils";
 import { useSidebarStore } from "@/lib/sidebar-store";
 import { useUserStore } from "@/lib/user-store";
-import Image from "next/image";
+import { createClient } from "@/lib/supabase";
+import { useLanguage } from "@/lib/i18n";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Inicio", icon: UserRound },
   { href: "/dashboard/send", label: "Enviar dinero", icon: Send },
-  { href: "/dashboard/wallet", label: "Mi billetera", icon: Wallet },
-  { href: "/dashboard/history", label: "Historial", icon: History },
-  { href: "/dashboard/beneficiaries", label: "Beneficiarios", icon: Users },
-  { href: "/dashboard/profile", label: "Perfil & KYC", icon: ShieldCheck },
+  { href: "/dashboard/history", label: "Operaciones", icon: History },
+  { href: "/dashboard/beneficiaries", label: "Destinatarios", icon: Users },
+  { href: "/dashboard/wallet", label: "Wallets", icon: WalletCards },
+  { href: "/dashboard/profile", label: "Comprobantes", icon: FileText },
   { href: "/dashboard/settings", label: "Configuración", icon: Settings },
 ];
 
 export default function Sidebar() {
+  const { t } = useLanguage();
   const pathname = usePathname();
   const router = useRouter();
-  const { logoUrl, platformName } = useBrandStore();
   const { isOpen, close } = useSidebarStore();
-  const { full_name, email } = useUserStore();
+  const { full_name, email, stable_eligible, clearUser } = useUserStore();
+  const visibleNavItems = stable_eligible
+    ? [...navItems.slice(0, 3), { href: "/dashboard/senders", label: "Remitentes USD", icon: ContactRound }, ...navItems.slice(3)]
+    : navItems;
 
-  const handleLogout = () => {
+  const logout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    clearUser();
     toast.success("Sesión cerrada");
-    router.push("/");
     close();
+    router.replace("/auth/login");
+    router.refresh();
   };
 
   return (
     <>
-      {/* Mobile backdrop */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={close}
-        />
-      )}
+      {isOpen && <button className="fixed inset-0 z-40 bg-black/55 lg:hidden" onClick={close} aria-label={t("Cerrar menú")} />}
       <aside className={cn(
-        "w-64 bg-[var(--sidebar)] flex flex-col flex-shrink-0 overflow-y-auto z-50 transition-transform duration-300",
-        // Desktop: sticky in flow
-        "lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
-        // Mobile: fixed overlay, slide based on isOpen
-        "fixed top-0 left-0 h-full",
-        isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        "pathline-sidebar fixed inset-y-0 left-0 z-50 flex w-[238px] flex-col overflow-y-auto transition-transform duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
+        isOpen ? "translate-x-0" : "-translate-x-full",
       )}>
-      <div className="p-6 border-b border-[var(--sidebar-border)]">
-        <Link href="/" className="flex items-center gap-2">
-          {logoUrl ? (
-            <Image src={logoUrl} alt={platformName} width={120} height={32} className="h-8 w-auto object-contain" unoptimized />
-          ) : (
-            <>
-              <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center">
-                <Zap className="w-5 h-5 text-emerald-400" />
-              </div>
-              <span className="text-xl font-bold text-white">{platformName}</span>
-            </>
-          )}
-        </Link>
-      </div>
-
-      <nav className="flex-1 p-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={close}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group",
-                isActive
-                  ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-primary)] shadow-sm"
-                  : "text-[var(--sidebar-foreground)]/70 hover:bg-[var(--sidebar-accent)] hover:text-[var(--sidebar-foreground)]"
-              )}
-            >
-              <item.icon className="w-4 h-4 flex-shrink-0" />
-              {item.label}
-              {isActive && <ChevronRight className="w-3.5 h-3.5 ml-auto" />}
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div className="p-4 border-t border-[var(--sidebar-border)]">
-        <div className="flex items-center gap-3 px-3 py-2 mb-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-bold">
-            {full_name ? full_name.charAt(0).toUpperCase() : "U"}
+        <div className="px-6 pb-7 pt-6"><Link href="/" onClick={close}><PathlineLogo inverse /></Link></div>
+        <nav className="flex-1 space-y-1 px-3">
+          {visibleNavItems.map((item) => {
+            const active = item.href === "/dashboard" ? pathname === item.href : pathname.startsWith(item.href);
+            return (
+              <Link key={item.href} href={item.href} onClick={close} className={cn("pathline-nav-item", active && "active")}>
+                <item.icon className="h-[18px] w-[18px]" /><span>{t(item.label)}</span>
+              </Link>
+            );
+          })}
+          <Link href="#ayuda" className="pathline-nav-item"><CircleHelp className="h-[18px] w-[18px]" />{t("Ayuda")}</Link>
+        </nav>
+        <div className="border-t border-white/10 p-4">
+          <div className="mb-3 flex items-center gap-3 rounded-2xl bg-white/[0.06] p-3">
+            <div className="grid h-9 w-9 place-items-center rounded-full bg-[#4DE2B5] font-black text-[#071A2D]">{full_name?.[0]?.toUpperCase() || "G"}</div>
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-white">{full_name || "Gian"}</p><p className="truncate text-[11px] text-white/50">{email || "Cliente verificado"}</p></div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-white text-sm font-medium truncate">{full_name || "Mi cuenta"}</p>
-            <p className="text-[var(--sidebar-foreground)]/50 text-xs truncate">{email || ""}</p>
-          </div>
+          <button onClick={logout} className="pathline-nav-item w-full"><LogOut className="h-[18px] w-[18px]" />{t("Cerrar sesión")}</button>
         </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-[var(--sidebar-foreground)]/60 hover:bg-[var(--sidebar-accent)] hover:text-[var(--sidebar-foreground)] transition-all"
-        >
-          <LogOut className="w-4 h-4" />
-          Cerrar sesión
-        </button>
-      </div>
-    </aside>
+      </aside>
     </>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,10 +13,10 @@ import {
 } from "lucide-react";
 import { CURRENCY_INFO } from "@/lib/exchange-rates";
 import { useRatesStore, calcTransferLive } from "@/lib/rates-store";
-import { MOCK_WALLETS, MOCK_BENEFICIARIES } from "@/lib/mock-data";
 import { useTransferStore } from "@/lib/transfer-store";
-import type { Currency, DeliveryMethod } from "@/types";
+import type { Beneficiary, Currency, DeliveryMethod, Wallet } from "@/types";
 import { toast } from "sonner";
+import { createClient } from "@/lib/supabase";
 
 const STEPS = ["Origen", "Destino", "Beneficiario", "Confirmar"];
 
@@ -35,7 +35,7 @@ const DELIVERY_BY_CURRENCY: Record<Currency, DeliveryOption[]> = {
     { value: "mobile_money", appName: "Bizum", label: "Bizum", icon: Smartphone, desc: "Pago instantáneo al número de teléfono registrado", phoneLabel: "Teléfono Bizum" },
   ],
   USD: [
-    { value: "bank", appName: "Transferencia bancaria", label: "Transferencia bancaria", icon: Building2, desc: "Depósito ACH/SWIFT a cuenta bancaria en EE.UU.", phoneLabel: null },
+    { value: "bank", appName: "Transferencia bancaria", label: "Transferencia bancaria", icon: Building2, desc: "Depósito ACH o Wire a cuenta bancaria en EE.UU.", phoneLabel: null },
     { value: "mobile_money", appName: "Zelle", label: "Zelle", icon: Smartphone, desc: "Transferencia instantánea por teléfono o correo electrónico", phoneLabel: "Teléfono o email Zelle" },
   ],
   PEN: [
@@ -54,10 +54,12 @@ export default function SendPage() {
   const [sendCurrency, setSendCurrency] = useState<Currency>("EUR");
   const [receiveCurrency, setReceiveCurrency] = useState<Currency>("PEN");
   const [sendAmount, setSendAmount] = useState("200");
-  const { markups, liveRates, setLiveRates } = useRatesStore();
+  const { markups, fees, activePairs, liveRates, setLiveRates, setMarkups, setPricing } = useRatesStore();
   const [deliveryOption, setDeliveryOption] = useState<DeliveryOption>(DELIVERY_BY_CURRENCY["PEN"][0]);
   const [useExisting, setUseExisting] = useState(true);
-  const [selectedBeneficiary, setSelectedBeneficiary] = useState(MOCK_BENEFICIARIES[0]?.id ?? "");
+  const [selectedBeneficiary, setSelectedBeneficiary] = useState("");
+  const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([]);
+  const [wallets, setWallets] = useState<Wallet[]>([]);
   const [newBenef, setNewBenef] = useState({ name: "", account: "", bank: "", phone: "", cedula: "" });
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
@@ -67,27 +69,49 @@ export default function SendPage() {
     if (Object.keys(liveRates).length === 0) {
       fetch("/api/rates")
         .then((r) => r.json())
-        .then((d) => setLiveRates(d.rates, d.updated_at, d.source))
+        .then((d) => {
+          setLiveRates(d.rates, d.updated_at, d.source);
+          if (d.markups) setMarkups(d.markups);
+          setPricing(d.fees ?? {}, d.activePairs ?? []);
+        })
         .catch(() => {});
     }
-  }, [liveRates, setLiveRates]);
-  const doneRef = React.useRef(`PTZ-2026-${Math.floor(Math.random() * 9000 + 1000)}`);
-
-  const [result, setResult] = useState<{
-    receiveAmount: number; exchangeRate: number; fee: number; totalCharged: number;
-  } | null>(null);
+  }, [liveRates, setLiveRates, setMarkups, setPricing]);
 
   useEffect(() => {
+    const loadCustomerData = async () => {
+      const supabase = createClient();
+      const [beneficiaryResult, walletResult] = await Promise.all([
+        supabase
+          .from("beneficiaries")
+          .select("id, user_id, full_name, country, currency, delivery_method, delivery_app, bank_name, account_number, phone, email, cedula, created_at")
+          .eq("is_active", true)
+          .order("created_at", { ascending: false }),
+        supabase.from("wallets").select("id, user_id, currency, balance, is_active, created_at").order("currency"),
+      ]);
+      if (!beneficiaryResult.error) {
+        const loaded = (beneficiaryResult.data ?? []) as Beneficiary[];
+        setBeneficiaries(loaded);
+        setSelectedBeneficiary((current) => current || loaded[0]?.id || "");
+      }
+      if (!walletResult.error) setWallets((walletResult.data ?? []) as Wallet[]);
+    };
+    void loadCustomerData();
+  }, []);
+  const [doneReference, setDoneReference] = useState("");
+
+  const result = useMemo(() => {
     const amt = parseFloat(sendAmount);
     if (!isNaN(amt) && amt > 0 && sendCurrency !== receiveCurrency) {
       const pair = `${sendCurrency}-${receiveCurrency}`;
-      setResult(calcTransferLive(pair, amt, liveRates, markups));
-    } else setResult(null);
-  }, [sendAmount, sendCurrency, receiveCurrency, liveRates, markups]);
+      if (!activePairs.includes(pair)) return null;
+      return calcTransferLive(pair, amt, liveRates, markups, fees);
+    }
+    return null;
+  }, [activePairs, fees, sendAmount, sendCurrency, receiveCurrency, liveRates, markups]);
 
-  const wallets = MOCK_WALLETS;
   const currentWallet = wallets.find((w) => w.currency === (sendCurrency as "EUR" | "USD"));
-  const beneficiaryObj = MOCK_BENEFICIARIES.find((b) => b.id === selectedBeneficiary);
+  const beneficiaryObj = beneficiaries.find((b) => b.id === selectedBeneficiary);
   const fromInfo = CURRENCY_INFO[sendCurrency];
   const toInfo = CURRENCY_INFO[receiveCurrency];
 
@@ -98,33 +122,40 @@ export default function SendPage() {
 
   const handleConfirm = async () => {
     if (!result) return;
+    const reference = `PTZ-${String(Date.now()).slice(-8)}`;
+    setDoneReference(reference);
     setSending(true);
-    await new Promise((r) => setTimeout(r, 1800));
     const benef = beneficiaryObj || { full_name: newBenef.name, country: "", currency: receiveCurrency, delivery_method: deliveryOption.value };
-    addTransfer({
-      id: `t${Date.now()}`,
-      user_id: "u1",
-      reference: doneRef.current,
-      beneficiary_name: benef.full_name,
-      beneficiary_country: CURRENCY_INFO[receiveCurrency].country,
-      send_currency: sendCurrency,
-      receive_currency: receiveCurrency,
-      send_amount: parseFloat(sendAmount),
-      receive_amount: result.receiveAmount,
-      exchange_rate: result.exchangeRate,
-      fee: 0,
-      total_charged: result.totalCharged,
-      delivery_method: deliveryOption.value,
-      delivery_app: deliveryOption.appName,
-      speed: "express",
-      status: "pending",
-      status_history: [{ status: "pending", timestamp: new Date().toISOString() }],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-    setSending(false);
-    setDone(true);
-    toast.success("¡Transferencia iniciada con éxito!");
+    try {
+      await addTransfer({
+        id: crypto.randomUUID(),
+        user_id: "",
+        reference,
+        beneficiary_id: beneficiaryObj?.id,
+        beneficiary_name: benef.full_name,
+        beneficiary_country: CURRENCY_INFO[receiveCurrency].country,
+        send_currency: sendCurrency,
+        receive_currency: receiveCurrency,
+        send_amount: parseFloat(sendAmount),
+        receive_amount: result.receiveAmount,
+        exchange_rate: result.exchangeRate,
+        fee: result.fee,
+        total_charged: result.totalCharged,
+        delivery_method: deliveryOption.value,
+        delivery_app: deliveryOption.appName,
+        speed: "express",
+        status: "pending",
+        status_history: [{ status: "pending", timestamp: new Date().toISOString() }],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+      setDone(true);
+      toast.success("¡Transferencia iniciada con éxito!");
+    } catch (transferError) {
+      toast.error(transferError instanceof Error ? transferError.message : "No se pudo crear la remesa.");
+    } finally {
+      setSending(false);
+    }
   };
 
   if (done) {
@@ -156,7 +187,7 @@ export default function SendPage() {
               </ol>
             </div>
             <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-sm px-4 py-1.5 mb-8">
-              Referencia: {doneRef.current}
+              Referencia: {doneReference}
             </Badge>
             <div className="flex flex-col gap-3">
               <Button
@@ -341,7 +372,9 @@ export default function SendPage() {
                       </div>
                       <div className="flex justify-between text-slate-500">
                         <span>Comisión</span>
-                        <span className="font-bold text-emerald-600">Gratis ✓</span>
+                        <span className="font-semibold text-slate-700">
+                          {result.fee > 0 ? `${fromInfo.symbol}${result.fee.toFixed(2)} ${sendCurrency}` : "Sin comisión adicional"}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -378,7 +411,7 @@ export default function SendPage() {
 
                   {useExisting ? (
                     <div className="space-y-2">
-                      {MOCK_BENEFICIARIES.filter((b) => b.currency === receiveCurrency).length === 0 ? (
+                      {beneficiaries.filter((b) => b.currency === receiveCurrency).length === 0 ? (
                         <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center">
                           <User className="w-8 h-8 text-slate-200 mx-auto mb-2" />
                           <p className="text-sm font-medium text-slate-500">Sin beneficiarios en {receiveCurrency}</p>
@@ -388,7 +421,7 @@ export default function SendPage() {
                           </button>
                         </div>
                       ) : null}
-                      {MOCK_BENEFICIARIES.filter((b) => b.currency === receiveCurrency).map((b) => (
+                      {beneficiaries.filter((b) => b.currency === receiveCurrency).map((b) => (
                         <button
                           key={b.id}
                           onClick={() => setSelectedBeneficiary(b.id)}
@@ -525,6 +558,7 @@ export default function SendPage() {
                       ["Método de entrega", deliveryOption.appName],
                       ["Entrega estimada", "Mismo día hábil"],
                       ["Tasa de cambio", `1 ${sendCurrency} = ${result.exchangeRate.toFixed(4)} ${receiveCurrency}`],
+                      ["Comisión", result.fee > 0 ? `${fromInfo.symbol}${result.fee.toFixed(2)} ${sendCurrency}` : "Sin comisión adicional"],
                       ["Total a enviar", `${fromInfo.symbol}${result.totalCharged.toFixed(2)}`],
                     ].map(([label, value]) => (
                       <div key={label} className="flex justify-between text-sm">
@@ -532,15 +566,9 @@ export default function SendPage() {
                         <span className="font-semibold text-slate-800">{value}</span>
                       </div>
                     ))}
-                    <div className="flex justify-between text-sm pt-1 border-t border-slate-200 mt-1">
-                      <span className="text-slate-500">Comisión</span>
-                      <span className="font-bold text-emerald-600 flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Gratis
-                      </span>
-                    </div>
                   </div>
                   <p className="text-xs text-slate-400 text-center">
-                    Al confirmar, aceptas nuestros términos de servicio. La tasa está garantizada por 30 minutos.
+                    Al confirmar, aceptas nuestros términos de servicio. La tasa final queda registrada al crear la operación.
                   </p>
                   <div className="flex gap-3">
                     <Button variant="outline" onClick={() => setStep(2)} className="flex-1">Atrás</Button>

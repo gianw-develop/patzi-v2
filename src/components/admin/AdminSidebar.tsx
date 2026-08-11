@@ -1,110 +1,63 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard, Users, ShieldCheck, ArrowLeftRight,
-  TrendingUp, Settings, Zap, LogOut, ChevronRight, Landmark, Wallet,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { usePathname, useRouter } from "next/navigation";
+import { Activity, ArrowLeftRight, Building2, FileCheck2, LogOut, Percent, Settings, ShieldCheck, UserCheck, Users } from "lucide-react";
 import { toast } from "sonner";
-import { useRouter } from "next/navigation";
-import { useBrandStore } from "@/lib/brand-store";
+import PathlineLogo from "@/components/brand/PathlineLogo";
+import { cn } from "@/lib/utils";
 import { useSidebarStore } from "@/lib/sidebar-store";
-import Image from "next/image";
+import { useUserStore } from "@/lib/user-store";
+import { createClient } from "@/lib/supabase";
+import { useLanguage } from "@/lib/i18n";
 
-const navItems = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/users", label: "Usuarios", icon: Users },
-  { href: "/admin/kyc", label: "Verificación KYC", icon: ShieldCheck },
-  { href: "/admin/transactions", label: "Transacciones", icon: ArrowLeftRight },
-  { href: "/admin/deposits", label: "Recargas", icon: Wallet },
-  { href: "/admin/accounts", label: "Cuentas de cobro", icon: Landmark },
-  { href: "/admin/rates", label: "Tasas de cambio", icon: TrendingUp },
+const nav = [
+  { href: "/admin", label: "Resumen", icon: Activity },
+  { href: "/admin/transactions", label: "Remesas", icon: ArrowLeftRight },
+  { href: "/admin/stable", label: "Stable", icon: ShieldCheck },
+  { href: "/admin/users", label: "Clientes", icon: Users },
+  { href: "/admin/accounts", label: "Cuentas receptoras", icon: Building2 },
+  { href: "/admin/rates", label: "Tasas y comisiones", icon: Percent },
+  { href: "/admin/deposits", label: "Comprobantes", icon: FileCheck2 },
+  { href: "/admin/kyc", label: "Verificación KYC", icon: UserCheck },
   { href: "/admin/settings", label: "Configuración", icon: Settings },
 ];
 
 export default function AdminSidebar() {
+  const { t } = useLanguage();
   const pathname = usePathname();
   const router = useRouter();
-  const { logoUrl, platformName } = useBrandStore();
   const { isOpen, close } = useSidebarStore();
-
-  const handleLogout = () => {
+  const clearUser = useUserStore((state) => state.clearUser);
+  const logout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    clearUser();
     toast.success("Sesión cerrada");
-    router.push("/");
     close();
+    router.replace("/auth/login");
+    router.refresh();
   };
 
   return (
     <>
-      {isOpen && (
-        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={close} />
-      )}
-      <aside className={cn(
-        "w-64 bg-[var(--sidebar)] flex flex-col flex-shrink-0 overflow-y-auto z-50 transition-transform duration-300",
-        "lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
-        "fixed top-0 left-0 h-full",
-        isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-      )}>
-      <div className="p-6 border-b border-[var(--sidebar-border)]">
-        <Link href="/" className="flex items-center gap-2 mb-2">
-          {logoUrl ? (
-            <Image src={logoUrl} alt={platformName} width={120} height={32} className="h-8 w-auto object-contain" unoptimized />
-          ) : (
-            <>
-              <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center">
-                <Zap className="w-5 h-5 text-emerald-400" />
-              </div>
-              <span className="text-xl font-bold text-white">{platformName}</span>
-            </>
-          )}
-        </Link>
-        <span className="text-xs font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 rounded-full">
-          Panel Admin
-        </span>
-      </div>
-
-      <nav className="flex-1 p-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={close}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
-                isActive
-                  ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-primary)] shadow-sm"
-                  : "text-[var(--sidebar-foreground)]/70 hover:bg-[var(--sidebar-accent)] hover:text-[var(--sidebar-foreground)]"
-              )}
-            >
-              <item.icon className="w-4 h-4 flex-shrink-0" />
-              {item.label}
-              {isActive && <ChevronRight className="w-3.5 h-3.5 ml-auto" />}
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div className="p-4 border-t border-[var(--sidebar-border)]">
-        <div className="flex items-center gap-3 px-3 py-2 mb-2">
-          <div className="w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center text-white text-sm font-bold">A</div>
-          <div className="flex-1 min-w-0">
-            <p className="text-white text-sm font-medium truncate">Admin Patzi</p>
-            <p className="text-[var(--sidebar-foreground)]/50 text-xs">Superadmin</p>
-          </div>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-sm text-[var(--sidebar-foreground)]/60 hover:bg-[var(--sidebar-accent)] hover:text-[var(--sidebar-foreground)] transition-all"
-        >
-          <LogOut className="w-4 h-4" />
-          Cerrar sesión
-        </button>
-      </div>
-    </aside>
+      {isOpen && <button className="fixed inset-0 z-40 bg-[#071A2D]/45 backdrop-blur-sm lg:hidden" onClick={close} aria-label={t("Cerrar menú")} />}
+      <aside className={cn("light-sidebar fixed inset-y-0 left-0 z-50 flex w-[clamp(232px,13vw,300px)] flex-col overflow-y-auto transition-transform duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0", isOpen ? "translate-x-0" : "-translate-x-full")}>
+        <div className="px-5 pb-7 pt-6"><Link href="/" onClick={close}><PathlineLogo admin /></Link></div>
+        <div className="px-5 pb-2 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#071A2D]/35">{t("Centro operativo")}</div>
+        <nav className="flex-1 space-y-0.5 px-3">
+          {nav.map((item, index) => {
+            const active = index === 0 ? pathname === "/admin" : pathname.startsWith(item.href);
+            return (
+              <Link key={`${item.href}-${item.label}`} href={item.href} onClick={close} className={cn("pathline-nav-item", active && "active")}>
+                <item.icon className="h-4 w-4" /><span className="flex-1">{t(item.label)}</span>
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="m-3 rounded-2xl border border-[#0AA883]/16 bg-[#EAF8F3] p-3 text-[11px] text-[#071A2D]/55 shadow-sm"><div className="mb-1 flex items-center gap-2 font-semibold text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#0AA883] shadow-[0_0_0_4px_rgba(10,168,131,.12)]" />Sistema operativo</div>Todos los servicios disponibles.</div>
+        <div className="border-t border-[#071A2D]/8 p-3"><button onClick={logout} className="pathline-nav-item w-full"><LogOut className="h-4 w-4" />{t("Cerrar sesión")}</button></div>
+      </aside>
     </>
   );
 }

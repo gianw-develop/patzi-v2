@@ -16,6 +16,8 @@ export interface User {
   kyc_status: KYCStatus;
   kyc_document_url?: string;
   kyc_rejection_reason?: string;
+  stable_eligible?: boolean;
+  risk_level?: "low" | "medium" | "high";
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -78,6 +80,8 @@ export interface Transfer {
   note?: string;
   proof_url?: string;
   proof_note?: string;
+  customer_name?: string;
+  customer_email?: string;
   created_at: string;
   updated_at: string;
 }

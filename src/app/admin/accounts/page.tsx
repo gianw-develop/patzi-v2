@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Plus, Edit2, Trash2, Building2, Smartphone, CheckCircle2,
-  AlertCircle, Copy, Eye, EyeOff,
+  AlertCircle, Copy, Eye, EyeOff, Gauge,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAccountsStore, type PaymentAccount, type AccountCurrency as Currency, type MethodType } from "@/lib/accounts-store";
@@ -34,12 +34,12 @@ const MOBILE_METHODS: Record<Currency, string[]> = {
 
 const EMPTY_FORM: Omit<PaymentAccount, "id"> = {
   currency: "EUR", method_type: "bank", method_name: "Transferencia bancaria",
-  account_holder: "", bank_name: "", iban_account: "", phone: "", email: "",
+  account_holder: "", bank_name: "", iban_account: "", ach_enabled: true, routing_number: "", wire_enabled: false, wire_routing_number: "", account_type: "checking", phone: "", email: "", weekly_limit: 10000,
   instructions: "Solo se aceptan depósitos de titulares de cuenta.", for_deposits: true, for_payouts: true, is_active: true,
 };
 
 export default function AdminAccountsPage() {
-  const { accounts, addAccount, updateAccount, deleteAccount, toggleActive } = useAccountsStore();
+  const { accounts, loadAccounts, addAccount, updateAccount, deleteAccount, toggleActive } = useAccountsStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<PaymentAccount | null>(null);
   const [form, setForm] = useState<Omit<PaymentAccount, "id">>(EMPTY_FORM);
@@ -47,6 +47,10 @@ export default function AdminAccountsPage() {
   const [activeTab, setActiveTab] = useState<Currency>("EUR");
 
   const CURRENCIES: Currency[] = ["EUR", "USD", "PEN", "VES"];
+
+  useEffect(() => {
+    void loadAccounts().catch(() => toast.error("No se pudieron cargar las cuentas."));
+  }, [loadAccounts]);
 
   const openCreate = () => {
     setEditing(null);
@@ -60,24 +64,47 @@ export default function AdminAccountsPage() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.account_holder.trim()) { toast.error("El titular es obligatorio"); return; }
+    if (form.method_type === "bank" && !form.bank_name?.trim()) { toast.error("El banco es obligatorio"); return; }
+    if (form.method_type === "bank" && !form.iban_account?.trim()) { toast.error(form.currency === "EUR" ? "El IBAN es obligatorio" : "El número de cuenta es obligatorio"); return; }
+    if (form.method_type === "bank" && form.currency === "USD" && !form.ach_enabled && !form.wire_enabled) { toast.error("Activa al menos un método: ACH o Wire"); return; }
+    if (form.method_type === "bank" && form.currency === "USD" && form.ach_enabled && !/^\d{9}$/.test(form.routing_number ?? "")) { toast.error("El routing ACH debe tener 9 dígitos"); return; }
+    if (form.method_type === "bank" && form.currency === "USD" && form.wire_enabled && !/^\d{9}$/.test(form.wire_routing_number ?? "")) { toast.error("El routing Wire debe tener 9 dígitos"); return; }
+    if (form.method_type === "bank" && form.currency === "USD" && Number(form.weekly_limit) <= 0) { toast.error("El límite semanal debe ser mayor que cero"); return; }
     if (form.method_type === "mobile" && form.method_name !== "Zelle" && !form.phone?.trim()) { toast.error("El teléfono es obligatorio"); return; }
     if (form.method_name === "Zelle" && !form.phone?.trim() && !form.email?.trim()) { toast.error("Introduce teléfono o email de Zelle"); return; }
 
-    if (editing) {
-      updateAccount(editing.id, form);
-      toast.success("Cuenta actualizada");
-    } else {
-      addAccount({ ...form, id: crypto.randomUUID() });
-      toast.success("Cuenta añadida");
+    try {
+      if (editing) {
+        await updateAccount(editing.id, form);
+        toast.success("Cuenta actualizada");
+      } else {
+        await addAccount(form);
+        toast.success("Cuenta añadida");
+      }
+      setDialogOpen(false);
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : "No se pudo guardar la cuenta.");
     }
-    setDialogOpen(false);
   };
 
-  const handleDelete = (id: string) => {
-    deleteAccount(id);
-    toast.success("Cuenta eliminada");
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteAccount(id);
+      toast.success("Cuenta eliminada");
+    } catch (deleteError) {
+      toast.error(deleteError instanceof Error ? deleteError.message : "No se pudo eliminar la cuenta.");
+    }
+  };
+
+  const handleToggle = async (id: string) => {
+    try {
+      await toggleActive(id);
+      toast.success("Disponibilidad actualizada");
+    } catch (toggleError) {
+      toast.error(toggleError instanceof Error ? toggleError.message : "No se pudo actualizar la cuenta.");
+    }
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -88,6 +115,11 @@ export default function AdminAccountsPage() {
   const tabAccounts = accounts.filter((a) => a.currency === activeTab);
   const bankAccounts = tabAccounts.filter((a) => a.method_type === "bank");
   const mobileAccounts = tabAccounts.filter((a) => a.method_type === "mobile");
+  const usdReceivingAccounts = accounts.filter((a) => a.currency === "USD" && a.method_type === "bank" && a.for_deposits);
+  const totalWeeklyLimit = usdReceivingAccounts.reduce((sum, account) => sum + Number(account.weekly_limit ?? 10000), 0);
+  const totalWeeklyUsed = usdReceivingAccounts.reduce((sum, account) => sum + Number(account.weekly_used ?? 0), 0);
+  const totalWeeklyAvailable = Math.max(totalWeeklyLimit - totalWeeklyUsed, 0);
+  const totalUtilization = totalWeeklyLimit > 0 ? Math.min((totalWeeklyUsed / totalWeeklyLimit) * 100, 100) : 0;
 
   const updateForm = (field: string, value: string | boolean) => {
     setForm((p) => {
@@ -131,6 +163,21 @@ export default function AdminAccountsPage() {
           </Button>
         </div>
 
+        {activeTab === "USD" && (
+          <section className="premium-card overflow-hidden rounded-2xl p-4 sm:p-5">
+            <div className="relative z-10">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                <div><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#087F62]">Capacidad Business USD</p><h2 className="mt-1 text-lg font-semibold text-[#071A2D]">Balance semanal de cuentas receptoras</h2></div>
+                <span className="w-fit rounded-full border border-[#0AA883]/15 bg-[#E7FAF3] px-3 py-1.5 text-[10px] font-semibold text-[#087F62]">Reinicio automático · domingo</span>
+              </div>
+              <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {[{label:"Cuentas USD",value:String(usdReceivingAccounts.length)},{label:"Capacidad total",value:`$${totalWeeklyLimit.toLocaleString("en-US")}`},{label:"Recibido + reservado",value:`$${totalWeeklyUsed.toLocaleString("en-US")}`},{label:"Disponible",value:`$${totalWeeklyAvailable.toLocaleString("en-US")}`}].map((metric)=><div key={metric.label} className="rounded-xl border border-[#071A2D]/7 bg-white p-3"><p className="text-[10px] text-[#071A2D]/42">{metric.label}</p><p className="mt-1 text-xl font-semibold text-[#071A2D]">{metric.value}</p></div>)}
+              </div>
+              <div className="mt-4"><div className="flex items-center justify-between text-[10px] text-[#071A2D]/48"><span>Uso global de la red receptora</span><b className="text-[#071A2D]">{totalUtilization.toFixed(0)}%</b></div><div className="mt-2 h-3 overflow-hidden rounded-full bg-[#071A2D]/7 shadow-inner"><div className={`h-full rounded-full transition-[width] duration-500 ${totalUtilization>=90?"bg-[#FF765B]":totalUtilization>=70?"bg-amber-500":"bg-[#0AA883]"}`} style={{width:`${totalUtilization}%`}} /></div></div>
+            </div>
+          </section>
+        )}
+
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3 text-sm">
           <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
@@ -143,14 +190,14 @@ export default function AdminAccountsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className={`grid grid-cols-1 gap-5 ${bankAccounts.length > 0 && mobileAccounts.length > 0 ? "lg:grid-cols-2" : ""}`}>
           <div>
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-              <Building2 className="w-3.5 h-3.5" /> Transferencia bancaria
+            <h3 className="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-[.08em] text-slate-600">
+              <Building2 className="h-4 w-4" /> Transferencia bancaria
               <span className="text-slate-300">·</span>
               <span className="text-slate-400 normal-case font-normal">{bankAccounts.length} cuenta{bankAccounts.length !== 1 ? "s" : ""}</span>
             </h3>
-            <div className="space-y-3">
+            <div className={mobileAccounts.length === 0 && bankAccounts.length > 0 ? "grid gap-4 xl:grid-cols-2" : "space-y-3"}>
               {bankAccounts.length === 0 ? (
                 <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center">
                   <Building2 className="w-8 h-8 text-slate-200 mx-auto mb-2" />
@@ -161,19 +208,19 @@ export default function AdminAccountsPage() {
                 </div>
               ) : (
                 bankAccounts.map((acc) => (
-                  <AccountCard key={acc.id} acc={acc} show={showSensitive[acc.id]} onToggleShow={() => setShowSensitive((p) => ({ ...p, [acc.id]: !p[acc.id] }))} onEdit={() => openEdit(acc)} onDelete={() => handleDelete(acc.id)} onToggleActive={() => toggleActive(acc.id)} onCopy={copyToClipboard} />
+                  <AccountCard key={acc.id} acc={acc} show={showSensitive[acc.id]} onToggleShow={() => setShowSensitive((p) => ({ ...p, [acc.id]: !p[acc.id] }))} onEdit={() => openEdit(acc)} onDelete={() => void handleDelete(acc.id)} onToggleActive={() => void handleToggle(acc.id)} onCopy={copyToClipboard} />
                 ))
               )}
             </div>
           </div>
 
           <div>
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-              <Smartphone className="w-3.5 h-3.5" /> Pago móvil · {MOBILE_METHODS[activeTab].join(" / ")}
+            <h3 className="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-[.08em] text-slate-600">
+              <Smartphone className="h-4 w-4" /> Pago móvil · {MOBILE_METHODS[activeTab].join(" / ")}
               <span className="text-slate-300">·</span>
               <span className="text-slate-400 normal-case font-normal">{mobileAccounts.length} cuenta{mobileAccounts.length !== 1 ? "s" : ""}</span>
             </h3>
-            <div className="space-y-3">
+            <div className={bankAccounts.length === 0 && mobileAccounts.length > 0 ? "grid gap-4 xl:grid-cols-2" : "space-y-3"}>
               {mobileAccounts.length === 0 ? (
                 <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center">
                   <Smartphone className="w-8 h-8 text-slate-200 mx-auto mb-2" />
@@ -184,7 +231,7 @@ export default function AdminAccountsPage() {
                 </div>
               ) : (
                 mobileAccounts.map((acc) => (
-                  <AccountCard key={acc.id} acc={acc} show={showSensitive[acc.id]} onToggleShow={() => setShowSensitive((p) => ({ ...p, [acc.id]: !p[acc.id] }))} onEdit={() => openEdit(acc)} onDelete={() => handleDelete(acc.id)} onToggleActive={() => toggleActive(acc.id)} onCopy={copyToClipboard} />
+                  <AccountCard key={acc.id} acc={acc} show={showSensitive[acc.id]} onToggleShow={() => setShowSensitive((p) => ({ ...p, [acc.id]: !p[acc.id] }))} onEdit={() => openEdit(acc)} onDelete={() => void handleDelete(acc.id)} onToggleActive={() => void handleToggle(acc.id)} onCopy={copyToClipboard} />
                 ))
               )}
             </div>
@@ -244,13 +291,44 @@ export default function AdminAccountsPage() {
             {form.method_type === "bank" && (
               <>
                 <div>
-                  <Label>Banco <span className="text-slate-400 font-normal">(opcional)</span></Label>
+                  <Label>Banco</Label>
                   <Input value={form.bank_name ?? ""} onChange={(e) => updateForm("bank_name", e.target.value)} className="mt-1.5 h-10" placeholder="CaixaBank, BCP, Bank of America..." />
                 </div>
                 <div>
-                  <Label>IBAN / Número de cuenta <span className="text-slate-400 font-normal">(opcional)</span></Label>
-                  <Input value={form.iban_account ?? ""} onChange={(e) => updateForm("iban_account", e.target.value)} className="mt-1.5 h-10 font-mono" placeholder="ES12 3456 7890 1234 5678 9012" />
+                  <Label>{form.currency === "EUR" ? "IBAN" : "Número de cuenta"}</Label>
+                  <Input value={form.iban_account ?? ""} onChange={(e) => updateForm("iban_account", e.target.value)} className="mt-1.5 h-10 font-mono" placeholder={form.currency === "EUR" ? "ES12 3456 7890 1234 5678 9012" : "1234567890"} />
                 </div>
+                {form.currency === "USD" && (
+                  <div className="grid grid-cols-2 gap-3 rounded-xl border border-blue-100 bg-blue-50/70 p-3">
+                    <div>
+                      <Label>Tipo de cuenta</Label>
+                      <Select value={form.account_type ?? "checking"} onValueChange={(v) => updateForm("account_type", v)}>
+                        <SelectTrigger className="mt-1.5 h-10"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="checking">Checking</SelectItem>
+                          <SelectItem value="savings">Savings</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-end pb-1"><p className="text-[10px] leading-4 text-slate-500">El routing puede ser diferente según el canal bancario.</p></div>
+                    <div className={`rounded-xl border p-3 transition-colors ${form.ach_enabled ? "border-[#0AA883]/25 bg-white" : "border-slate-200 bg-slate-100/70"}`}>
+                      <div className="flex items-center justify-between gap-2"><div><p className="text-xs font-semibold text-slate-800">Aceptar ACH</p><p className="text-[9px] text-slate-500">Transferencia doméstica ACH</p></div><Switch checked={Boolean(form.ach_enabled)} onCheckedChange={(value) => updateForm("ach_enabled", value)} /></div>
+                      {form.ach_enabled && <div className="mt-3"><Label>Routing ACH</Label><Input value={form.routing_number ?? ""} onChange={(e) => updateForm("routing_number", e.target.value.replace(/\D/g, "").slice(0, 9))} className="mt-1.5 h-10 font-mono" placeholder="021000021" inputMode="numeric" maxLength={9} /><p className="mt-1 text-[9px] text-slate-500">Exactamente 9 dígitos.</p></div>}
+                    </div>
+                    <div className={`rounded-xl border p-3 transition-colors ${form.wire_enabled ? "border-[#2775CA]/25 bg-white" : "border-slate-200 bg-slate-100/70"}`}>
+                      <div className="flex items-center justify-between gap-2"><div><p className="text-xs font-semibold text-slate-800">Aceptar Wire</p><p className="text-[9px] text-slate-500">Domestic Wire Transfer</p></div><Switch checked={Boolean(form.wire_enabled)} onCheckedChange={(value) => updateForm("wire_enabled", value)} /></div>
+                      {form.wire_enabled && <div className="mt-3"><Label>Routing Wire</Label><Input value={form.wire_routing_number ?? ""} onChange={(e) => updateForm("wire_routing_number", e.target.value.replace(/\D/g, "").slice(0, 9))} className="mt-1.5 h-10 font-mono" placeholder="026009593" inputMode="numeric" maxLength={9} /><p className="mt-1 text-[9px] text-slate-500">Puede ser distinto al routing ACH.</p></div>}
+                    </div>
+                    <div className="col-span-2 border-t border-blue-100 pt-3">
+                      <Label>Límite semanal de recepción</Label>
+                      <div className="relative mt-1.5">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">$</span>
+                        <Input type="number" min="1" step="100" value={form.weekly_limit ?? 10000} onChange={(e) => updateForm("weekly_limit", e.target.value)} className="h-10 pl-7 font-mono" />
+                      </div>
+                      <p className="mt-1 text-[10px] text-slate-500">El cupo se renueva cada domingo. Recomendado: $10,000 USD.</p>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
@@ -303,7 +381,7 @@ export default function AdminAccountsPage() {
 
             <div className="flex gap-2 pt-1">
               <Button variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">Cancelar</Button>
-              <Button onClick={handleSave} className="flex-1 bg-blue-900 hover:bg-blue-800 text-white">
+              <Button onClick={() => void handleSave()} className="flex-1 bg-blue-900 hover:bg-blue-800 text-white">
                 {editing ? "Guardar cambios" : "Añadir cuenta"}
               </Button>
             </div>
@@ -325,18 +403,37 @@ interface AccountCardProps {
 }
 
 function AccountCard({ acc, show, onToggleShow, onEdit, onDelete, onToggleActive, onCopy }: AccountCardProps) {
-  const info = CURRENCY_INFO[acc.currency];
+  const showsWeeklyCapacity = acc.currency === "USD" && acc.method_type === "bank" && acc.for_deposits;
+  const weeklyLimit = Number(acc.weekly_limit ?? 10000);
+  const weeklyUsed = Number(acc.weekly_used ?? 0);
+  const weeklyAvailable = Number(acc.weekly_available ?? Math.max(weeklyLimit - weeklyUsed, 0));
+  const utilization = Math.min(Number(acc.utilization_percent ?? (weeklyUsed / weeklyLimit) * 100), 100);
+  const capacityExhausted = showsWeeklyCapacity && (!acc.capacity_available || utilization >= 100);
+  const barTone = utilization >= 90 ? "bg-[#FF765B]" : utilization >= 70 ? "bg-amber-500" : "bg-[#0AA883]";
+  const copyFullAccount = () => {
+    const details = [
+      "DATOS BANCARIOS PATZI",
+      `Titular: ${acc.account_holder}`,
+      `Banco: ${acc.bank_name ?? ""}`,
+      `Número de cuenta: ${acc.iban_account ?? ""}`,
+      acc.account_type ? `Tipo de cuenta: ${acc.account_type}` : null,
+      acc.ach_enabled && acc.routing_number ? `ACH routing: ${acc.routing_number}` : null,
+      acc.wire_enabled && acc.wire_routing_number ? `Wire routing: ${acc.wire_routing_number}` : null,
+      acc.instructions ? `Instrucciones: ${acc.instructions}` : null,
+    ].filter(Boolean).join("\n");
+    onCopy(details, "Datos bancarios completos");
+  };
   return (
-    <Card className={`border-0 shadow-sm transition-opacity ${!acc.is_active ? "opacity-60" : ""}`}>
-      <CardContent className="p-4 space-y-3">
+    <Card className={`overflow-hidden border border-slate-200/80 shadow-[0_12px_30px_rgba(15,23,42,.07)] transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_38px_rgba(15,23,42,.1)] ${!acc.is_active || capacityExhausted ? "bg-slate-100 opacity-65 grayscale-[.35]" : ""}`}>
+      <CardContent className="space-y-4 p-5 sm:p-6">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${acc.method_type === "bank" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
-              {acc.method_type === "bank" ? <Building2 className="w-4 h-4" /> : <Smartphone className="w-4 h-4" />}
+            <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl shadow-sm ${acc.method_type === "bank" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
+              {acc.method_type === "bank" ? <Building2 className="h-5 w-5" /> : <Smartphone className="h-5 w-5" />}
             </div>
             <div>
-              <p className="text-sm font-bold text-slate-800">{acc.method_name}</p>
-              <p className="text-xs text-slate-500">{acc.account_holder}</p>
+              <p className="text-base font-bold text-slate-900">{acc.method_name}</p>
+              <p className="mt-0.5 text-sm font-medium text-slate-500">{acc.account_holder}</p>
             </div>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -350,11 +447,27 @@ function AccountCard({ acc, show, onToggleShow, onEdit, onDelete, onToggleActive
           </div>
         </div>
 
+        {showsWeeklyCapacity && (
+          <div className={`rounded-2xl border p-4 ${capacityExhausted ? "border-slate-200 bg-slate-100" : "border-[#0AA883]/15 bg-[#EAF8F3]/70"}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[.12em] text-slate-500"><Gauge className="h-4 w-4" /> Volumen semanal</p>
+                <p className="mt-1.5 text-lg font-bold text-slate-900">${weeklyUsed.toLocaleString("en-US")} <span className="text-sm font-normal text-slate-500">de ${weeklyLimit.toLocaleString("en-US")}</span></p>
+              </div>
+              <Badge className={`px-2.5 py-1 text-xs ${capacityExhausted ? "border-slate-200 bg-slate-200 text-slate-600" : utilization >= 90 ? "border-red-200 bg-red-50 text-red-700" : utilization >= 70 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                {capacityExhausted ? "Cupo agotado" : `${utilization.toFixed(0)}% usado`}
+              </Badge>
+            </div>
+            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white shadow-inner"><div className={`h-full rounded-full transition-[width] duration-500 ${capacityExhausted ? "bg-slate-400" : barTone}`} style={{ width: `${utilization}%` }} /></div>
+            <div className="mt-2.5 flex justify-between text-xs text-slate-500"><span>Disponible: <b className="text-slate-700">${weeklyAvailable.toLocaleString("en-US")}</b></span><span>Reinicio: domingo</span></div>
+          </div>
+        )}
+
         {acc.method_type === "bank" && acc.iban_account && (
-          <div className="bg-slate-50 rounded-lg p-2.5 flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3.5">
             <div className="min-w-0">
-              <p className="text-[10px] text-slate-400 mb-0.5">IBAN / Cuenta · {acc.bank_name}</p>
-              <p className={`text-xs font-mono font-semibold text-slate-700 ${!show ? "tracking-widest" : ""}`}>
+              <p className="mb-1 text-xs font-medium text-slate-500">IBAN / Cuenta · {acc.bank_name}</p>
+              <p className={`font-mono text-sm font-semibold text-slate-800 ${!show ? "tracking-widest" : ""}`}>
                 {show ? acc.iban_account : "•••• •••• •••• " + acc.iban_account.slice(-4)}
               </p>
             </div>
@@ -362,18 +475,26 @@ function AccountCard({ acc, show, onToggleShow, onEdit, onDelete, onToggleActive
               <button onClick={onToggleShow} className="p-1 text-slate-400 hover:text-slate-600">
                 {show ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
-              <button onClick={() => onCopy(acc.iban_account!, "IBAN")} className="p-1 text-slate-400 hover:text-slate-600">
-                <Copy className="w-3.5 h-3.5" />
+              <button onClick={copyFullAccount} className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-[#087f62] hover:bg-[#E7FAF3]" title="Copiar todos los datos bancarios">
+                <Copy className="h-4 w-4" /><span className="hidden sm:inline">Copiar todo</span>
               </button>
             </div>
           </div>
         )}
 
+        {acc.method_type === "bank" && (acc.routing_number || acc.wire_routing_number || acc.account_type) && (
+          <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200/80 bg-white p-3.5 text-xs">
+            {acc.ach_enabled && acc.routing_number && <button onClick={() => onCopy(acc.routing_number!, "Routing ACH")} className="text-left"><span className="block font-medium text-slate-500">ACH habilitado</span><span className="mt-1 block font-mono text-sm font-bold text-slate-800">{acc.routing_number}</span></button>}
+            {acc.wire_enabled && acc.wire_routing_number && <button onClick={() => onCopy(acc.wire_routing_number!, "Routing Wire")} className="text-left"><span className="block font-medium text-slate-500">Wire habilitado</span><span className="mt-1 block font-mono text-sm font-bold text-slate-800">{acc.wire_routing_number}</span></button>}
+            {acc.account_type && <div><span className="block font-medium text-slate-500">Tipo de cuenta</span><span className="mt-1 block text-sm font-semibold capitalize text-slate-800">{acc.account_type}</span></div>}
+          </div>
+        )}
+
         {acc.method_type === "mobile" && acc.phone && (
-          <div className="bg-slate-50 rounded-lg p-2.5 flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3.5">
             <div>
               <p className="text-[10px] text-slate-400 mb-0.5">Teléfono {acc.method_name}</p>
-              <p className="text-xs font-mono font-semibold text-slate-700">{acc.phone}</p>
+              <p className="font-mono text-sm font-semibold text-slate-800">{acc.phone}</p>
             </div>
             <button onClick={() => onCopy(acc.phone!, "Teléfono")} className="p-1 text-slate-400 hover:text-slate-600 flex-shrink-0">
               <Copy className="w-3.5 h-3.5" />
@@ -383,7 +504,7 @@ function AccountCard({ acc, show, onToggleShow, onEdit, onDelete, onToggleActive
 
         <div className="flex items-center gap-2 flex-wrap">
           {acc.for_deposits && (
-            <Badge className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200 px-2 py-0.5">
+            <Badge className="border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700">
               <CheckCircle2 className="w-2.5 h-2.5 mr-1" /> Depósitos
             </Badge>
           )}
@@ -400,7 +521,7 @@ function AccountCard({ acc, show, onToggleShow, onEdit, onDelete, onToggleActive
         </div>
 
         {acc.instructions && (
-          <p className="text-[11px] text-slate-400 leading-relaxed border-t border-slate-100 pt-2">
+          <p className="border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-500">
             {acc.instructions}
           </p>
         )}

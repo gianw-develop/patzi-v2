@@ -1,230 +1,125 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Zap, Eye, EyeOff, CheckCircle2, ArrowLeft } from "lucide-react";
+import { ArrowRight, Check, CheckCircle2, Eye, EyeOff, LockKeyhole, Mail, Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
+import AuthShell from "@/components/auth/AuthShell";
+import { Button } from "@/components/ui/button";
 import { useUserStore } from "@/lib/user-store";
-import { useBrandStore } from "@/lib/brand-store";
+import { createClient } from "@/lib/supabase";
+import { useLanguage } from "@/lib/i18n";
+import { getSiteUrl } from "@/lib/site-url";
 
 export default function RegisterPage() {
+  const { t } = useLanguage();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-  const { logoUrl, platformName } = useBrandStore();
-  useEffect(() => setMounted(true), []);
-  const effectiveLogo = mounted ? logoUrl : null;
-  const [form, setForm] = useState({
-    full_name: "",
-    email: "",
-    phone: "",
-    password: "",
-    confirm_password: "",
-  });
+  const [form, setForm] = useState({ full_name: "", email: "", phone: "", password: "", confirm_password: "" });
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const { setUser } = useUserStore();
+  const update = (field: string, value: string) => setForm((previous) => ({ ...previous, [field]: value }));
 
-  const update = (field: string, value: string) =>
-    setForm((prev) => ({ ...prev, [field]: value }));
-
-  const passwordStrength = () => {
-    const p = form.password;
-    if (p.length === 0) return 0;
-    let score = 0;
-    if (p.length >= 8) score++;
-    if (/[A-Z]/.test(p)) score++;
-    if (/[0-9]/.test(p)) score++;
-    if (/[^A-Za-z0-9]/.test(p)) score++;
-    return score;
-  };
-
-  const strength = passwordStrength();
+  const strength = (() => {
+    if (!form.password) return 0;
+    return Number(form.password.length >= 8) + Number(/[A-Z]/.test(form.password)) + Number(/[0-9]/.test(form.password)) + Number(/[^A-Za-z0-9]/.test(form.password));
+  })();
   const strengthLabels = ["", "Débil", "Regular", "Buena", "Fuerte"];
-  const strengthColors = ["", "bg-red-500", "bg-orange-400", "bg-yellow-400", "bg-emerald-500"];
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (form.password !== form.confirm_password) {
-      toast.error("Las contraseñas no coinciden");
-      return;
-    }
-    if (!agreed) {
-      toast.error("Debes aceptar los términos y condiciones");
-      return;
-    }
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (form.password !== form.confirm_password) { toast.error("Las contraseñas no coinciden"); return; }
+    if (!agreed) { toast.error("Debes aceptar los términos y condiciones"); return; }
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setUser({ full_name: form.full_name, email: form.email, phone: form.phone });
-    toast.success("¡Cuenta creada! Bienvenido a Patzi.");
-    router.push("/dashboard");
-    setLoading(false);
+
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.auth.signUp({
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+        options: {
+          emailRedirectTo: `${getSiteUrl()}/auth/callback?next=/auth/confirmed`,
+          data: {
+            full_name: form.full_name.trim(),
+            phone: form.phone.trim(),
+          },
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data.session || !data.user) {
+        toast.success("Cuenta creada. Revisa tu correo para confirmar el acceso.");
+        router.replace("/auth/login?registered=1");
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, phone, role, kyc_status, stable_eligible, is_active")
+        .eq("id", data.user.id)
+        .single();
+
+      if (profile) {
+        setUser({
+          id: profile.id,
+          full_name: profile.full_name,
+          email: profile.email,
+          phone: profile.phone ?? "",
+          role: profile.role,
+          kyc_status: profile.kyc_status,
+          stable_eligible: profile.stable_eligible,
+          is_active: profile.is_active,
+        });
+      }
+
+      toast.success("¡Cuenta creada! Bienvenido a Patzi.");
+      router.replace(profile?.role === "admin" ? "/admin" : "/dashboard");
+      router.refresh();
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : "No se pudo crear la cuenta.";
+      toast.error(message === "User already registered" ? "Este correo ya está registrado." : message);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const inputShell = "mt-2 flex h-12 items-center rounded-xl border border-[#071A2D]/10 bg-white px-4 shadow-[inset_0_1px_0_white] focus-within:border-[#2775CA] focus-within:ring-4 focus-within:ring-[#2775CA]/8";
+  const input = "h-full min-w-0 flex-1 bg-transparent px-3 text-sm outline-none";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 mb-6">
-            {effectiveLogo ? (
-              <Image src={effectiveLogo} alt="logo" width={140} height={48} className="object-contain max-h-12" />
-            ) : (
-              <>
-                <div className="w-10 h-10 bg-blue-800 border border-blue-600 rounded-xl flex items-center justify-center">
-                  <Zap className="w-6 h-6 text-emerald-400" />
-                </div>
-                <span className="text-2xl font-bold text-white">{mounted ? (platformName || "Patzi") : "Patzi"}</span>
-              </>
-            )}
-          </Link>
+    <AuthShell variant="register">
+      <div className="premium-card rounded-[2rem] p-6 sm:p-8">
+        <div className="relative z-10">
+          <p className="premium-kicker text-[#087F62]">{t("Nueva cuenta")}</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-[-.04em] sm:text-4xl">{t("Crea tu espacio en Patzi")}</h1>
+          <p className="mt-3 text-sm leading-6 text-[#071A2D]/50">{t("Comienza con remesas. El acceso Stable se habilita después de verificar tu cuenta.")}</p>
+
+          <form onSubmit={handleSubmit} className="mt-7 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label><span className="text-[11px] font-semibold">{t("Nombre completo")}</span><div className={inputShell}><UserRound className="h-4 w-4 text-[#071A2D]/32"/><input id="full_name" autoComplete="name" placeholder="María García" value={form.full_name} onChange={(event)=>update("full_name",event.target.value)} required className={input}/></div></label>
+              <label><span className="text-[11px] font-semibold">{t("Teléfono")} <span className="font-normal text-[#071A2D]/35">{t("(opcional)")}</span></span><div className={inputShell}><Phone className="h-4 w-4 text-[#071A2D]/32"/><input id="phone" type="tel" autoComplete="tel" placeholder="+34 612 345 678" value={form.phone} onChange={(event)=>update("phone",event.target.value)} className={input}/></div></label>
+            </div>
+
+            <label className="block"><span className="text-[11px] font-semibold">{t("Correo electrónico")}</span><div className={inputShell}><Mail className="h-4 w-4 text-[#071A2D]/32"/><input id="email" type="email" autoComplete="email" placeholder="tu@email.com" value={form.email} onChange={(event)=>update("email",event.target.value)} required className={input}/></div></label>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label><span className="text-[11px] font-semibold">{t("Contraseña")}</span><div className={inputShell}><LockKeyhole className="h-4 w-4 text-[#071A2D]/32"/><input id="password" type={showPass?"text":"password"} autoComplete="new-password" placeholder={t("Mínimo 8 caracteres")} value={form.password} onChange={(event)=>update("password",event.target.value)} required minLength={8} className={input}/><button type="button" onClick={()=>setShowPass(!showPass)} className="text-[#071A2D]/35" aria-label={showPass?"Ocultar contraseña":"Mostrar contraseña"}>{showPass?<EyeOff className="h-4 w-4"/>:<Eye className="h-4 w-4"/>}</button></div></label>
+              <label><span className="text-[11px] font-semibold">{t("Confirmar contraseña")}</span><div className={`${inputShell} ${form.confirm_password&&form.password!==form.confirm_password?"border-[#FF765B]":""}`}><LockKeyhole className="h-4 w-4 text-[#071A2D]/32"/><input id="confirm_password" type="password" autoComplete="new-password" placeholder={t("Repite tu contraseña")} value={form.confirm_password} onChange={(event)=>update("confirm_password",event.target.value)} required className={input}/>{form.confirm_password&&form.password===form.confirm_password&&<CheckCircle2 className="h-4 w-4 text-[#0AA883]"/>}</div></label>
+            </div>
+
+            {form.password && <div className="rounded-xl bg-[#F4F7F4] p-3"><div className="flex gap-1">{[1,2,3,4].map((level)=><span key={level} className={`h-1.5 flex-1 rounded-full transition-colors ${level<=strength?(strength>=4?"bg-[#0AA883]":strength>=3?"bg-[#4C7DFF]":strength>=2?"bg-[#F2B84B]":"bg-[#FF765B]"):"bg-[#071A2D]/8"}`}/>)}</div><p className="mt-2 text-[9px] text-[#071A2D]/42">Seguridad: <b className="font-semibold">{strengthLabels[strength]}</b></p></div>}
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#071A2D]/8 bg-white/70 p-3"><input type="checkbox" checked={agreed} onChange={(event)=>setAgreed(event.target.checked)} className="peer sr-only"/><span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md border border-[#071A2D]/15 bg-white peer-checked:border-[#0AA883] peer-checked:bg-[#0AA883] peer-checked:text-white"><Check className={`h-3 w-3 ${agreed?"opacity-100":"opacity-0"}`}/></span><span className="text-[10px] leading-5 text-[#071A2D]/48">Acepto los <Link href="#" className="font-semibold text-[#2775CA]">términos y condiciones</Link> y la <Link href="#" className="font-semibold text-[#2775CA]">política de privacidad</Link> de Patzi.</span></label>
+
+            <Button type="submit" disabled={loading} className="h-13 w-full rounded-xl bg-[#071A2D] text-xs font-semibold text-white shadow-[0_16px_28px_rgba(7,26,45,.2)] hover:bg-[#0D2A40]">{loading?t("Creando tu cuenta..."):<>{t("Crear cuenta")} <ArrowRight className="ml-2 h-4 w-4"/></>}</Button>
+          </form>
+
+          <p className="mt-5 text-center text-xs text-[#071A2D]/48">{t("¿Ya tienes una cuenta?")} <Link href="/auth/login" className="font-semibold text-[#087F62] hover:underline">{t("Iniciar sesión")}</Link></p>
         </div>
-
-        <Card className="border-0 shadow-2xl">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-2xl font-bold text-slate-800">Crear cuenta gratis</CardTitle>
-            <CardDescription>Únete a miles de personas que ya envían con Patzi</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="full_name">Nombre completo</Label>
-                <Input
-                  id="full_name"
-                  placeholder="María García López"
-                  value={form.full_name}
-                  onChange={(e) => update("full_name", e.target.value)}
-                  required
-                  className="h-11"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="tu@email.com"
-                  value={form.email}
-                  onChange={(e) => update("email", e.target.value)}
-                  required
-                  className="h-11"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="phone">Teléfono (opcional)</Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  placeholder="+34 612 345 678"
-                  value={form.phone}
-                  onChange={(e) => update("phone", e.target.value)}
-                  className="h-11"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="password">Contraseña</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPass ? "text" : "password"}
-                    placeholder="Mínimo 8 caracteres"
-                    value={form.password}
-                    onChange={(e) => update("password", e.target.value)}
-                    required
-                    minLength={8}
-                    className="h-11 pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPass(!showPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {form.password.length > 0 && (
-                  <div className="space-y-1">
-                    <div className="flex gap-1">
-                      {[1, 2, 3, 4].map((i) => (
-                        <div
-                          key={i}
-                          className={`h-1 flex-1 rounded-full transition-colors ${i <= strength ? strengthColors[strength] : "bg-slate-200"}`}
-                        />
-                      ))}
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      Fortaleza: <span className="font-medium">{strengthLabels[strength]}</span>
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="confirm_password">Confirmar contraseña</Label>
-                <div className="relative">
-                  <Input
-                    id="confirm_password"
-                    type="password"
-                    placeholder="Repite tu contraseña"
-                    value={form.confirm_password}
-                    onChange={(e) => update("confirm_password", e.target.value)}
-                    required
-                    className={`h-11 pr-10 ${form.confirm_password && form.password !== form.confirm_password ? "border-red-400" : ""}`}
-                  />
-                  {form.confirm_password && form.password === form.confirm_password && (
-                    <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />
-                  )}
-                </div>
-              </div>
-
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={agreed}
-                  onChange={(e) => setAgreed(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 accent-blue-900"
-                />
-                <span className="text-xs text-slate-500 leading-relaxed">
-                  Acepto los{" "}
-                  <Link href="#" className="text-blue-600 hover:underline">términos y condiciones</Link>{" "}
-                  y la{" "}
-                  <Link href="#" className="text-blue-600 hover:underline">política de privacidad</Link>{" "}
-                  de Patzi.
-                </span>
-              </label>
-
-              <Button
-                type="submit"
-                className="w-full h-11 bg-blue-900 hover:bg-blue-800 text-white font-semibold"
-                disabled={loading}
-              >
-                {loading ? "Creando cuenta..." : "Crear cuenta gratis"}
-              </Button>
-            </form>
-
-            <p className="text-center text-sm text-slate-500 mt-5">
-              ¿Ya tienes cuenta?{" "}
-              <Link href="/auth/login" className="text-blue-600 font-semibold hover:underline">
-                Iniciar sesión
-              </Link>
-            </p>
-          </CardContent>
-        </Card>
-
-        <p className="text-center mt-5">
-          <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-blue-200 hover:text-white transition-colors">
-            <ArrowLeft className="w-4 h-4" /> Volver al inicio
-          </Link>
-        </p>
       </div>
-    </div>
+    </AuthShell>
   );
 }

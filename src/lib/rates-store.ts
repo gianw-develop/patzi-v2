@@ -13,10 +13,19 @@ export const DEFAULT_MARKUPS: Record<Pair, number> = {
   "USD-EUR": 1,
 };
 
+export type PairFee = { fixed: number; percent: number };
+
+export const DEFAULT_FEES: Record<Pair, PairFee> = Object.fromEntries(
+  PAIRS.map((pair) => [pair, { fixed: 0, percent: 0 }])
+) as Record<Pair, PairFee>;
+
 interface RatesState {
   markups: Record<Pair, number>;
   setMarkup: (pair: Pair, v: number) => void;
   setMarkups: (m: Record<string, number>) => void;
+  fees: Record<string, PairFee>;
+  activePairs: string[];
+  setPricing: (fees: Record<string, PairFee>, activePairs: string[]) => void;
   liveRates: Record<string, number>;
   lastUpdated: string | null;
   source: string | null;
@@ -31,6 +40,9 @@ export const useRatesStore = create<RatesState>()(
         set((s) => ({ markups: { ...s.markups, [pair]: v } })),
       setMarkups: (m) =>
         set((s) => ({ markups: { ...s.markups, ...m } })),
+      fees: { ...DEFAULT_FEES },
+      activePairs: [...PAIRS],
+      setPricing: (fees, activePairs) => set({ fees, activePairs }),
       liveRates: {},
       lastUpdated: null,
       source: null,
@@ -59,14 +71,18 @@ export function calcTransferLive(
   pair: string,
   sendAmount: number,
   liveRates: Record<string, number>,
-  markups: Record<string, number>
+  markups: Record<string, number>,
+  fees: Record<string, PairFee> = DEFAULT_FEES
 ): { receiveAmount: number; exchangeRate: number; fee: number; totalCharged: number } | null {
   const effective = getEffectiveRate(pair, liveRates, markups);
   if (!effective || sendAmount <= 0) return null;
+  const pricing = fees[pair] ?? { fixed: 0, percent: 0 };
+  const fee = Math.max(0, pricing.fixed + (sendAmount * pricing.percent) / 100);
+  const convertibleAmount = Math.max(0, sendAmount - fee);
   return {
-    receiveAmount: sendAmount * effective,
+    receiveAmount: convertibleAmount * effective,
     exchangeRate: effective,
-    fee: 0,
+    fee,
     totalCharged: sendAmount,
   };
 }

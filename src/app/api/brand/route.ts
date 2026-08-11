@@ -1,18 +1,11 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
-function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-}
-
 export async function GET() {
   try {
-    const sb = getSupabase();
+    const sb = await createServerSupabaseClient();
     const { data, error } = await sb
       .from("platform_settings")
       .select("key, value");
@@ -36,18 +29,29 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const sb = getSupabase();
+    const sb = await createServerSupabaseClient();
+
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) {
+      return Response.json({ ok: false, error: "No autorizado" }, { status: 401 });
+    }
 
     if ("logoUrl" in body) {
-      await sb
+      const { error } = await sb
         .from("platform_settings")
         .upsert({ key: "logo_url", value: body.logoUrl ?? "", updated_at: new Date().toISOString() });
+      if (error) {
+        return Response.json({ ok: false, error: "Acceso denegado" }, { status: 403 });
+      }
     }
 
     if ("platformName" in body) {
-      await sb
+      const { error } = await sb
         .from("platform_settings")
         .upsert({ key: "platform_name", value: body.platformName ?? "Patzi", updated_at: new Date().toISOString() });
+      if (error) {
+        return Response.json({ ok: false, error: "Acceso denegado" }, { status: 403 });
+      }
     }
 
     return Response.json({ ok: true });

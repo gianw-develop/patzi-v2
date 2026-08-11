@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,12 +25,18 @@ const STATUS_CONFIG = {
 };
 
 export default function AdminDepositsPage() {
-  const { requests, updateStatus } = useDepositStore();
+  const { requests, updateStatus, loadRequests } = useDepositStore();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<DepositRequest | null>(null);
   const [rejectNote, setRejectNote] = useState("");
   const [imageZoom, setImageZoom] = useState(false);
+
+  useEffect(() => {
+    void loadRequests("admin");
+    const interval = window.setInterval(() => void loadRequests("admin"), 10_000);
+    return () => window.clearInterval(interval);
+  }, [loadRequests]);
 
   const filtered = requests.filter((r) => {
     const matchSearch =
@@ -42,17 +48,25 @@ export default function AdminDepositsPage() {
 
   const pendingCount = requests.filter((r) => r.status === "pending").length;
 
-  const handleApprove = (r: DepositRequest) => {
-    updateStatus(r.id, "approved");
-    toast.success(`Recarga de ${CURRENCY_INFO[r.currency].symbol}${r.amount.toFixed(2)} aprobada`);
-    setSelected(null);
+  const handleApprove = async (r: DepositRequest) => {
+    try {
+      await updateStatus(r.id, "approved");
+      toast.success(`Recarga de ${CURRENCY_INFO[r.currency].symbol}${r.amount.toFixed(2)} aprobada`);
+      setSelected(null);
+    } catch (approveError) {
+      toast.error(approveError instanceof Error ? approveError.message : "No se pudo aprobar la recarga.");
+    }
   };
 
-  const handleReject = (r: DepositRequest) => {
-    updateStatus(r.id, "rejected", rejectNote || "Comprobante no válido");
-    toast.error(`Recarga rechazada`);
-    setRejectNote("");
-    setSelected(null);
+  const handleReject = async (r: DepositRequest) => {
+    try {
+      await updateStatus(r.id, "rejected", rejectNote || "Comprobante no válido");
+      toast.error("Recarga rechazada");
+      setRejectNote("");
+      setSelected(null);
+    } catch (rejectError) {
+      toast.error(rejectError instanceof Error ? rejectError.message : "No se pudo rechazar la recarga.");
+    }
   };
 
   return (

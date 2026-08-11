@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Header from "@/components/dashboard/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,11 +15,11 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MOCK_USERS } from "@/lib/mock-data";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import type { User as UserType } from "@/types";
+import { createClient } from "@/lib/supabase";
 
 const KYC_CONFIG = {
   not_submitted: { label: "Sin enviar", color: "bg-slate-100 text-slate-600 border-slate-200", icon: AlertCircle },
@@ -29,10 +29,34 @@ const KYC_CONFIG = {
 };
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<UserType[]>(MOCK_USERS.filter((u) => u.role === "user"));
+  const [users, setUsers] = useState<UserType[]>([]);
   const [search, setSearch] = useState("");
   const [kycFilter, setKycFilter] = useState("all");
   const [selected, setSelected] = useState<UserType | null>(null);
+
+  const loadUsers = useCallback(async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, email, full_name, phone, country, role, kyc_status, kyc_document_url, kyc_rejection_reason, stable_eligible, risk_level, is_active, created_at, updated_at")
+      .eq("role", "user")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      toast.error("No se pudieron cargar los clientes.");
+      return;
+    }
+    setUsers((data ?? []) as UserType[]);
+  }, []);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void loadUsers(), 0);
+    const interval = window.setInterval(() => void loadUsers(), 15_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+    };
+  }, [loadUsers]);
 
   const filtered = users.filter((u) => {
     const matchSearch =
@@ -42,12 +66,31 @@ export default function AdminUsersPage() {
     return matchSearch && matchKyc;
   });
 
-  const toggleActive = (id: string) => {
-    setUsers((prev) =>
-      prev.map((u) => u.id === id ? { ...u, is_active: !u.is_active } : u)
-    );
+  const toggleActive = async (id: string) => {
     const user = users.find((u) => u.id === id);
-    toast.success(user?.is_active ? "Usuario suspendido" : "Usuario reactivado");
+    if (!user) return;
+    const supabase = createClient();
+    const { error } = await supabase.rpc("admin_update_user_access", {
+      target_user_id: id,
+      new_is_active: !user.is_active,
+    });
+    if (error) { toast.error(error.message); return; }
+    toast.success(user.is_active ? "Usuario suspendido" : "Usuario reactivado");
+    setSelected(null);
+    await loadUsers();
+  };
+
+  const updateAccess = async (updates: { new_kyc_status?: string; new_stable_eligible?: boolean }) => {
+    if (!selected) return;
+    const supabase = createClient();
+    const { error } = await supabase.rpc("admin_update_user_access", {
+      target_user_id: selected.id,
+      ...updates,
+    });
+    if (error) { toast.error(error.message); return; }
+    toast.success("Acceso del cliente actualizado");
+    setSelected(null);
+    await loadUsers();
   };
 
   return (
@@ -92,7 +135,7 @@ export default function AdminUsersPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {["Usuario", "Email", "País", "KYC", "Estado", "Registro", ""].map((h) => (
+                  {["Usuario", "Email", "País", "KYC", "Stable", "Estado", "Registro", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
                       {h}
                     </th>
@@ -125,6 +168,11 @@ export default function AdminUsersPage() {
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
+                        <Badge className={`text-xs border w-fit ${user.stable_eligible ? "bg-cyan-100 text-cyan-700 border-cyan-200" : "bg-slate-100 text-slate-500 border-slate-200"}`}>
+                          {user.stable_eligible ? "Apto" : "No apto"}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
                         <Badge className={`text-xs border w-fit ${user.is_active ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-red-100 text-red-700 border-red-200"}`}>
                           {user.is_active ? "Activo" : "Suspendido"}
                         </Badge>
@@ -144,7 +192,7 @@ export default function AdminUsersPage() {
                               <User className="w-3.5 h-3.5 mr-2" /> Ver detalle
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => toggleActive(user.id)}
+                              onClick={() => void toggleActive(user.id)}
                               className={`cursor-pointer ${user.is_active ? "text-red-600" : "text-emerald-600"}`}
                             >
                               {user.is_active
@@ -187,6 +235,7 @@ export default function AdminUsersPage() {
                 { icon: Phone, label: "Teléfono", value: selected.phone || "No registrado" },
                 { icon: Globe, label: "País", value: selected.country || "No registrado" },
                 { icon: ShieldCheck, label: "KYC", value: KYC_CONFIG[selected.kyc_status].label },
+                { icon: CheckCircle2, label: "Stable", value: selected.stable_eligible ? "Apto" : "No apto" },
                 { icon: User, label: "Estado", value: selected.is_active ? "Activo" : "Suspendido" },
               ].map(({ icon: Icon, label, value }) => (
                 <div key={label} className="flex items-center gap-3 py-2 border-b border-slate-50">
@@ -201,16 +250,32 @@ export default function AdminUsersPage() {
                   <p className="text-xs text-red-600">{selected.kyc_rejection_reason}</p>
                 </div>
               )}
-              <div className="flex gap-2 pt-2">
+              <div className="grid grid-cols-2 gap-2 pt-2">
                 <Button
-                  onClick={() => { toggleActive(selected.id); setSelected(null); }}
+                  onClick={() => void updateAccess({ new_kyc_status: selected.kyc_status === "approved" ? "pending" : "approved" })}
+                  variant="outline"
+                  size="sm"
+                  className="border-blue-200 text-blue-700"
+                >
+                  {selected.kyc_status === "approved" ? "Reabrir KYC" : "Aprobar KYC"}
+                </Button>
+                <Button
+                  onClick={() => void updateAccess({ new_stable_eligible: !selected.stable_eligible })}
+                  variant="outline"
+                  size="sm"
+                  className="border-cyan-200 text-cyan-700"
+                >
+                  {selected.stable_eligible ? "Retirar Stable" : "Habilitar Stable"}
+                </Button>
+                <Button
+                  onClick={() => void toggleActive(selected.id)}
                   variant="outline"
                   size="sm"
                   className={`flex-1 ${selected.is_active ? "border-red-300 text-red-600 hover:bg-red-50" : "border-emerald-300 text-emerald-600 hover:bg-emerald-50"}`}
                 >
                   {selected.is_active ? "Suspender usuario" : "Reactivar usuario"}
                 </Button>
-                <Button onClick={() => setSelected(null)} size="sm" className="flex-1 bg-blue-900 hover:bg-blue-800 text-white">
+                <Button onClick={() => setSelected(null)} size="sm" className="bg-blue-900 hover:bg-blue-800 text-white">
                   Cerrar
                 </Button>
               </div>
