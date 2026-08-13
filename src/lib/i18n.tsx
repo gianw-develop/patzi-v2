@@ -53,6 +53,8 @@ const english: Record<string, string> = {
   "Sin comisión adicional": "No additional fee",
   "No disponible": "Unavailable",
   "Actualizando tasa": "Updating rate",
+  "No pudimos cargar las tasas. Inténtalo de nuevo.": "We couldn't load the rates. Please try again.",
+  "Tasas no disponibles": "Rates unavailable",
   "Monto que envías": "Amount you send",
   "Monto que recibe el destinatario": "Amount the recipient gets",
   "Moneda de envío": "Sending currency",

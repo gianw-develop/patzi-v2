@@ -80,6 +80,8 @@ export default function BeneficiariesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Beneficiary | null>(null);
   const [form, setForm] = useState({ ...EMPTY });
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadBeneficiaries = useCallback(async () => {
     const supabase = createClient();
@@ -139,29 +141,38 @@ export default function BeneficiariesPage() {
 
   const handleSave = async () => {
     if (!form.full_name.trim()) { toast.error("El nombre del beneficiario es obligatorio"); return; }
-    if (form.delivery_method === "bank" && !form.account_number.trim()) { toast.error("El número de cuenta es obligatorio"); return; }
-    if (form.delivery_method === "mobile_money" && !form.phone.trim()) { toast.error("El teléfono es obligatorio"); return; }
+    if (form.delivery_method === "bank" && (!form.bank_name.trim() || !form.account_number.trim())) { toast.error("El banco y el número de cuenta son obligatorios"); return; }
+    if (form.delivery_app === "Zelle" && !form.phone.trim() && !form.email.trim()) { toast.error("Zelle requiere un teléfono o correo"); return; }
+    if (["Yape", "Plin", "Bizum"].includes(form.delivery_app) && !form.phone.trim()) { toast.error(form.delivery_app + " requiere un teléfono"); return; }
+    if (form.delivery_app === "Pagomóvil" && (!form.phone.trim() || !form.bank_name.trim() || !form.cedula.trim())) { toast.error("Pagomóvil requiere teléfono, banco y cédula"); return; }
+    setSaving(true);
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { toast.error("Tu sesión ha caducado."); return; }
-    const payload = { ...form, full_name: form.full_name.trim() };
+    if (!user) { setSaving(false); toast.error("Tu sesión ha caducado."); return; }
+    const payload = Object.fromEntries(Object.entries(form).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]));
     const result = editing
       ? await supabase.from("beneficiaries").update(payload).eq("id", editing.id)
       : await supabase.from("beneficiaries").insert({ ...payload, user_id: user.id });
     if (result.error) {
+      setSaving(false);
       toast.error(result.error.message);
       return;
     }
-    toast.success(editing ? "Beneficiario actualizado correctamente" : "Beneficiario añadido correctamente");
     await loadBeneficiaries();
+    setSaving(false);
     setOpen(false);
+    toast.success(editing ? "Beneficiario actualizado correctamente" : "Beneficiario añadido correctamente");
   };
 
   const handleDelete = async (id: string) => {
+    const beneficiary = beneficiaries.find((item) => item.id === id);
+    if (!window.confirm("¿Quitar a " + (beneficiary?.full_name || "este beneficiario") + "? Sus operaciones anteriores se conservarán.")) return;
+    setDeletingId(id);
     const supabase = createClient();
     const { error } = await supabase.from("beneficiaries").update({ is_active: false }).eq("id", id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { setDeletingId(null); toast.error(error.message); return; }
     await loadBeneficiaries();
+    setDeletingId(null);
     toast.success("Beneficiario eliminado");
   };
 
@@ -216,11 +227,11 @@ export default function BeneficiariesPage() {
                           </div>
                         </div>
                         <div className="flex gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                          <Button size="icon" variant="ghost" className="w-8 h-8" onClick={() => openEdit(b)}>
+                          <Button type="button" size="icon" variant="ghost" className="w-8 h-8" disabled={saving || deletingId === b.id} onClick={() => openEdit(b)}>
                             <Edit2 className="w-3.5 h-3.5 text-slate-400" />
                           </Button>
-                          <Button size="icon" variant="ghost" className="w-8 h-8" onClick={() => void handleDelete(b.id)}>
-                            <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                          <Button type="button" size="icon" variant="ghost" className="w-8 h-8" disabled={saving || deletingId === b.id} onClick={() => void handleDelete(b.id)}>
+                            {deletingId === b.id ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-red-200 border-t-red-500" /> : <Trash2 className="w-3.5 h-3.5 text-red-400" />}
                           </Button>
                         </div>
                       </div>
@@ -491,11 +502,11 @@ export default function BeneficiariesPage() {
 
           {/* Footer */}
           <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-3">
-            <Button variant="outline" onClick={() => setOpen(false)} className="flex-1 h-11">
+            <Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)} className="flex-1 h-11">
               Cancelar
             </Button>
-            <Button onClick={() => void handleSave()} className="flex-1 h-11 bg-blue-900 hover:bg-blue-800 text-white font-semibold">
-              {editing ? "Guardar cambios" : "Añadir beneficiario"}
+            <Button type="button" disabled={saving} onClick={() => void handleSave()} className="flex-1 h-11 bg-blue-900 hover:bg-blue-800 text-white font-semibold">
+              {saving ? "Guardando…" : editing ? "Guardar cambios" : "Añadir beneficiario"}
               <ChevronRight className="w-4 h-4 ml-1" />
             </Button>
           </div>

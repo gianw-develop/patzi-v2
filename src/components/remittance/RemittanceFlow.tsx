@@ -13,9 +13,15 @@ import { createClient } from "@/lib/supabase";
 import { useTransferStore } from "@/lib/transfer-store";
 import type { Beneficiary, Currency, DeliveryMethod } from "@/types";
 
+type NewBeneficiaryDraft = {
+  full_name: string; bank_name: string; account_number: string;
+  phone: string; email: string; cedula: string;
+};
+
 type Draft = {
   step: number; sendCurrency: "EUR" | "USD"; receiveCurrency: Currency; amount: string;
-  beneficiaryId: string; mode: "existing" | "new"; updatedAt: string;
+  beneficiaryId: string; mode: "existing" | "new"; methodIndex: number;
+  newBeneficiary: NewBeneficiaryDraft; updatedAt: string;
 };
 
 const METHODS: Record<Currency, { method: DeliveryMethod; app: string; label: string; hint: string }[]> = {
@@ -38,7 +44,7 @@ const METHODS: Record<Currency, { method: DeliveryMethod; app: string; label: st
   ],
 };
 
-const emptyNew = { full_name: "", bank_name: "", account_number: "", phone: "", email: "", cedula: "" };
+const emptyNew: NewBeneficiaryDraft = { full_name: "", bank_name: "", account_number: "", phone: "", email: "", cedula: "" };
 
 function beneficiaryDetail(item: Beneficiary) {
   if (item.delivery_method === "bank") return [item.bank_name, item.account_number].filter(Boolean).join(" · ");
@@ -108,6 +114,10 @@ export default function RemittanceFlow() {
       setAmount(draft.amount || "200");
       setBeneficiaryId(draft.beneficiaryId || "");
       setMode(draft.mode || "existing");
+      const restoredMethods = METHODS[draft.receiveCurrency || "PEN"];
+      const restoredMethodIndex = Number.isInteger(draft.methodIndex) ? draft.methodIndex : 0;
+      setMethodIndex(Math.min(Math.max(0, restoredMethodIndex), restoredMethods.length - 1));
+      setNewBeneficiary({ ...emptyNew, ...(draft.newBeneficiary ?? {}) });
       toast.info("Recuperamos el envío que estabas preparando.");
     } catch { sessionStorage.removeItem(`patzi-remittance-draft:${userId}`); }
   }, [userId]);
@@ -115,13 +125,16 @@ export default function RemittanceFlow() {
   useEffect(() => {
     if (!userId || createdReference) return;
     const timer = window.setTimeout(() => {
-      const draft: Draft = { step, sendCurrency, receiveCurrency, amount, beneficiaryId, mode, updatedAt: new Date().toISOString() };
+      const draft: Draft = {
+        step, sendCurrency, receiveCurrency, amount, beneficiaryId, mode,
+        methodIndex, newBeneficiary, updatedAt: new Date().toISOString(),
+      };
       sessionStorage.setItem(`patzi-remittance-draft:${userId}`, JSON.stringify(draft));
       setDraftSaved(true);
       window.setTimeout(() => setDraftSaved(false), 1200);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [amount, beneficiaryId, createdReference, mode, receiveCurrency, sendCurrency, step, userId]);
+  }, [amount, beneficiaryId, createdReference, methodIndex, mode, newBeneficiary, receiveCurrency, sendCurrency, step, userId]);
 
   useEffect(() => {
     if (!availableBeneficiaries.some((item) => item.id === beneficiaryId)) {

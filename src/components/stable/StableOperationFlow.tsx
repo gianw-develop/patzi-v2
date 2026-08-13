@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Building2, CheckCircle2, Copy,
   Landmark, Plus, ShieldCheck, TimerReset, Upload, UserRound,
@@ -36,9 +36,11 @@ const draftKeyFor = (userId: string) => `patzi-stable-draft:${userId}`;
 
 export default function StableOperationFlow() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedOperationId = searchParams.get("operation") ?? "";
   const {
     stableEligible, kycVerified, accounts, capacity, senders, operations,
-    addSender, addOperation, uploadProof, load, loading,
+    addSender, addOperation, attachSender, uploadProof, load, loading,
   } = useStableStore();
   const [step, setStep] = useState(0);
   const [amount, setAmount] = useState("1000");
@@ -91,6 +93,7 @@ export default function StableOperationFlow() {
           if (typeof draft.step === "number") setStep(Math.max(0, Math.min(draft.operationId ? 3 : 2, draft.step)));
           setDraftRestored(true);
         }
+        if (requestedOperationId) setDraftOperationId(requestedOperationId);
       } catch {
         // The flow still works when auth or session storage is unavailable.
       } finally {
@@ -98,7 +101,7 @@ export default function StableOperationFlow() {
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [requestedOperationId]);
 
   useEffect(() => {
     if (!draftReady || !draftUserId) return;
@@ -126,8 +129,9 @@ export default function StableOperationFlow() {
       setWallet(recovered.walletAddress);
       setSenderId(recovered.senderId ?? "");
       setOperation(recovered);
-      setStep(3);
+      setStep(recovered.senderId ? 3 : 1);
       setDraftRestored(true);
+      if (!recovered.senderId) toast.warning("Completa el titular que enviará los USD antes de cargar el comprobante.");
       return;
     }
     try { window.sessionStorage.removeItem(draftKeyFor(draftUserId)); } catch { /* Storage is optional. */ }
@@ -155,6 +159,24 @@ export default function StableOperationFlow() {
   const copyAssignedAccount = async () => {
     await navigator.clipboard.writeText(accountCopyText);
     toast.success("Datos bancarios completos copiados");
+  };
+
+  const continueWithSender = async () => {
+    if (!selectedSender) { toast.error("Selecciona el titular que enviará los USD"); return; }
+    if (operation && !operation.senderId) {
+      if (!senderConfirmed) { toast.error("Confirma que el depósito saldrá de la cuenta del remitente seleccionado"); return; }
+      setSubmitting(true);
+      try {
+        const updated = await attachSender(operation.id, selectedSender.id, true);
+        setOperation(updated);
+        setStep(3);
+        toast.success("Remitente registrado. Ya puedes cargar el comprobante.");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "No se pudo registrar el remitente.");
+      } finally { setSubmitting(false); }
+      return;
+    }
+    setStep(2);
   };
 
   const createOperation = async () => {
@@ -249,7 +271,8 @@ export default function StableOperationFlow() {
               {step === 1 && <div>
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start"><div><p className="premium-kicker text-[#087F62]">Identidad del depósito</p><h1 className="mt-1 text-2xl font-semibold">¿Quién enviará los USD?</h1><p className="mt-2 text-sm text-[#071A2D]/50">Selecciona al titular real de la cuenta bancaria.</p></div><Button variant="outline" onClick={() => setShowNewSender((value) => !value)} className="h-10"><Plus className="mr-2 h-4 w-4" />{showNewSender ? "Ver guardados" : "Nuevo remitente"}</Button></div>
                 {showNewSender || activeSenders.length === 0 ? <div className="mt-6 rounded-2xl border border-[#071A2D]/9 bg-[#F6F8F6] p-4 sm:p-5"><StableSenderForm draftKey={draftUserId ? `patzi-stable-sender-draft:${draftUserId}` : undefined} onSubmit={async (input) => { const sender = await addSender(input); setSenderId(sender.id); setShowNewSender(false); toast.success("Remitente guardado"); }} /></div> : <div className="mt-6 grid gap-3 sm:grid-cols-2">{activeSenders.map((sender) => { const Icon = sender.type === "business" ? Building2 : UserRound; return <button key={sender.id} onClick={() => setSenderId(sender.id)} className={`rounded-2xl border-2 p-4 text-left ${senderId === sender.id ? "border-[#0AA883] bg-[#E7FAF3] shadow-[0_16px_35px_rgba(10,168,131,.1)]" : "border-[#071A2D]/9 bg-white"}`}><div className="flex items-start justify-between"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#071A2D] text-white"><Icon className="h-5 w-5" /></div>{senderId === sender.id && <CheckCircle2 className="h-5 w-5 text-[#087F62]" />}</div><p className="mt-3 font-semibold">{sender.legalName}</p><p className="mt-1 text-[10px] text-[#071A2D]/45">{sender.email} · {sender.phone}</p>{sender.bankName && <p className="mt-2 text-[10px] font-medium text-[#356DE5]">{sender.bankName}{sender.accountLast4 ? ` · •••• ${sender.accountLast4}` : ""}</p>}</button>; })}</div>}
-                {!showNewSender && activeSenders.length > 0 && <Button onClick={() => setStep(2)} disabled={!selectedSender} className="mt-8 h-12 w-full bg-[#071A2D] text-white">Usar este remitente <ArrowRight className="ml-2 h-4 w-4" /></Button>}
+                {operation && !operation.senderId && selectedSender && <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-[#0AA883]/20 bg-[#E7FAF3]/60 p-4"><input type="checkbox" checked={senderConfirmed} onChange={(event) => setSenderConfirmed(event.target.checked)} className="mt-1 h-4 w-4 accent-[#0AA883]" /><span><b className="block text-sm font-semibold">Confirmo el titular de esta operación</b><small className="mt-1 block leading-5 text-[#071A2D]/52">El depósito de {formatUsd(operation.usdAmount)} saldrá de una cuenta a nombre de {selectedSender.legalName}.</small></span></label>}
+                {!showNewSender && activeSenders.length > 0 && <Button onClick={() => void continueWithSender()} disabled={!selectedSender || submitting || Boolean(operation && !operation.senderId && !senderConfirmed)} className="mt-8 h-12 w-full bg-[#071A2D] text-white">{submitting ? "Guardando remitente…" : operation && !operation.senderId ? "Registrar remitente y continuar" : "Usar este remitente"} <ArrowRight className="ml-2 h-4 w-4" /></Button>}
               </div>}
 
               {step === 2 && selectedSender && <div>

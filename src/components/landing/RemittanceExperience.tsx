@@ -190,6 +190,7 @@ export default function RemittanceExperience() {
   const [receiveDraft, setReceiveDraft] = useState("");
   const [editingField, setEditingField] = useState<"send" | "receive" | null>(null);
   const [loading, setLoading] = useState(true);
+  const [rateError, setRateError] = useState(false);
   const [vesSource, setVesSource] = useState<"paralelo" | "oficial" | null>(null);
 
   const pair = `${sendCurrency}-${receiveCurrency}`;
@@ -198,15 +199,20 @@ export default function RemittanceExperience() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/rates")
-      .then((response) => response.json())
+    fetch("/api/rates", { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Rates unavailable");
+        return response.json();
+      })
       .then((data) => {
         if (!active) return;
         setLiveRates(data.rates ?? {}, data.updated_at, data.source);
         if (data.markups) setMarkups(data.markups);
         setPricing(data.fees ?? {}, data.activePairs ?? []);
         setVesSource(data.ves_source ?? null);
+        setRateError(false);
       })
+      .catch(() => { if (active) setRateError(true); })
       .finally(() => active && setLoading(false));
     return () => { active = false; };
   }, [setLiveRates, setMarkups, setPricing]);
@@ -239,7 +245,7 @@ export default function RemittanceExperience() {
 
   const sendOption = SEND_OPTIONS.find((option) => option.currency === sendCurrency) ?? SEND_OPTIONS[0];
   const receiveOption = RECEIVE_OPTIONS.find((option) => option.currency === receiveCurrency) ?? RECEIVE_OPTIONS[0];
-  const isAvailable = activePairs.includes(pair);
+  const isAvailable = !rateError && activePairs.includes(pair);
   const routeKey = pair;
 
   return (
@@ -285,7 +291,7 @@ export default function RemittanceExperience() {
           </div>
 
           <div className="mt-6 flex flex-wrap items-center gap-4 text-[10px] text-[#071A2D]/48">
-            <span className="flex items-center gap-2"><span className="live-rate-dot h-2.5 w-2.5 rounded-full bg-[#18A77D]" />{t(source === "fallback" ? "Tasa de respaldo disponible" : "Tasas actualizadas en tiempo real")}</span>
+            <span className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${rateError ? "bg-[#E86650]" : "live-rate-dot bg-[#18A77D]"}`} />{t(rateError ? "No pudimos cargar las tasas. Inténtalo de nuevo." : source === "fallback" ? "Tasa de respaldo disponible" : "Tasas actualizadas en tiempo real")}</span>
             {receiveCurrency === "VES" && vesSource && <span className="rounded-full bg-[#EAF8F2] px-3 py-1.5 font-semibold text-[#087F62]">VES · {t("mercado")} {t(vesSource)}</span>}
           </div>
         </div>
@@ -300,7 +306,7 @@ export default function RemittanceExperience() {
               <span className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[#071A2D]/8 bg-white px-3 py-2 text-[9px] font-medium text-[#071A2D]/55 shadow-sm">
                 <ArrowDownUp className="h-3.5 w-3.5 text-[#071A2D]" />
                 <span className="hidden sm:inline">{t(source === "fallback" ? "Tasa de respaldo" : "Tasa en tiempo real")}</span>
-                <span className="live-rate-dot h-2 w-2 rounded-full bg-[#18A77D]" />
+                <span className={`h-2 w-2 rounded-full ${rateError ? "bg-[#E86650]" : "live-rate-dot bg-[#18A77D]"}`} />
               </span>
             </div>
 
@@ -332,7 +338,7 @@ export default function RemittanceExperience() {
             </div>
 
             <Link aria-disabled={!isAvailable || loading || !result} href={isAvailable && result ? "/auth/register" : "#remesas"} className={`relative z-10 mt-5 flex h-14 items-center justify-center gap-3 rounded-xl text-xs font-semibold text-white transition-all ${isAvailable && result ? "bg-[#071A2D] shadow-[0_16px_28px_rgba(7,26,45,.2)] hover:-translate-y-0.5" : "cursor-not-allowed bg-[#071A2D]/40"}`}>
-              {loading ? <><RefreshCw className="h-4 w-4 animate-spin" />{t("Actualizando tasa")}</> : <>{t("Continuar envío")} <ArrowRight className="h-4 w-4" /></>}
+              {loading ? <><RefreshCw className="h-4 w-4 animate-spin" />{t("Actualizando tasa")}</> : rateError ? t("Tasas no disponibles") : <>{t("Continuar envío")} <ArrowRight className="h-4 w-4" /></>}
             </Link>
 
             <div className="depth-float-delayed absolute -bottom-8 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 whitespace-nowrap rounded-2xl border border-[#4DE2B5]/55 bg-white/94 px-4 py-3 shadow-[0_18px_40px_rgba(7,26,45,.14)] backdrop-blur-xl">

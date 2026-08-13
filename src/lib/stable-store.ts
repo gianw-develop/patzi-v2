@@ -253,6 +253,7 @@ interface StableState {
   addSender: (input: StableSenderInput) => Promise<StableSender>;
   updateSender: (senderId: string, input: StableSenderInput & { active?: boolean }) => Promise<void>;
   addOperation: (input: { usdAmount: number; asset: StableAsset; walletAddress: string; paymentRail: StablePaymentRail; senderId: string; senderAccountConfirmed: boolean }) => Promise<StableOperation>;
+  attachSender: (operationId: string, senderId: string, senderAccountConfirmed: boolean) => Promise<StableOperation>;
   uploadProof: (operationId: string, file: File) => Promise<void>;
   uploadOperationDocument: (operation: StableOperation, type: StableDocumentType, file: File) => Promise<void>;
   updateStatus: (operationId: string, status: StableStatus, label: string, actor?: string, note?: string) => Promise<void>;
@@ -515,6 +516,20 @@ export const useStableStore = create<StableState>((set, get) => ({
     const created = get().operations.find((operation) => operation.id === data.id);
     if (!created) throw new Error("La operación se creó, pero no pudo cargarse.");
     return created;
+  },
+
+  attachSender: async (operationId, senderId, senderAccountConfirmed) => {
+    const { supabase } = await currentUser();
+    const { data, error } = await supabase.rpc("attach_stable_sender", {
+      p_operation_id: operationId,
+      p_sender_id: senderId,
+      p_sender_account_confirmed: senderAccountConfirmed,
+    });
+    if (error || !data) throw error ?? new Error("No se pudo registrar el remitente.");
+    await get().load("user");
+    const updated = get().operations.find((item) => item.id === operationId);
+    if (!updated) throw new Error("El remitente se guardó, pero la operación no pudo recargarse.");
+    return updated;
   },
 
   uploadProof: async (operationId, file) => {

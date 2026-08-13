@@ -4,6 +4,7 @@ do $$
 declare
   test_admin_id uuid;
   test_account_id uuid;
+  test_sender_id uuid;
   test_operation public.stable_operations;
   usage_before numeric;
   usage_after numeric;
@@ -24,13 +25,24 @@ begin
   set stable_eligible = true, kyc_status = 'approved', role = 'user'
   where id = test_admin_id;
 
+  update public.payment_accounts
+  set is_active = false
+  where currency = 'USD' and method_type = 'bank' and for_deposits = true;
+
+  insert into public.stable_senders (
+    user_id, sender_type, legal_name, email, phone, bank_name, account_last4
+  ) values (
+    test_admin_id, 'business', 'Patzi Capacity Sender',
+    'capacity-test@patzi.net', '+12025550123', 'Test Origin Bank', '0123'
+  ) returning id into test_sender_id;
+
   insert into public.payment_accounts (
     currency, method_type, method_name, account_holder, bank_name,
     iban_account, routing_number, wire_enabled, wire_routing_number,
     for_deposits, for_payouts, is_active, weekly_limit
   ) values (
     'USD', 'bank', 'Transferencia bancaria', 'Patzi Capacity Test', 'Test Bank',
-    'TEST-0001', '021000021', true, '026009593', true, false, true, 10000
+    'TEST-0001', '021000021', true, '026009593', true, false, true, 20000
   ) returning id into test_account_id;
 
   usage_before := public.stable_account_weekly_usage(test_account_id);
@@ -42,7 +54,9 @@ begin
     1000,
     'USDT',
     '0x0000000000000000000000000000000000000000',
-    'WIRE'
+    'WIRE',
+    test_sender_id,
+    true
   );
 
   if test_operation.receiving_account_id <> test_account_id then
@@ -73,10 +87,12 @@ begin
 
   begin
     perform public.create_stable_operation(
-      9500,
+      19500,
       'USDC',
       '0x1111111111111111111111111111111111111111',
-      'WIRE'
+      'WIRE',
+      test_sender_id,
+      true
     );
     raise exception 'Expected capacity overflow to be blocked';
   exception
@@ -86,7 +102,7 @@ begin
       end if;
   end;
 
-  raise notice 'PASS: weekly capacity, reservation, proof consolidation and overflow block';
+  raise notice 'PASS: 20k weekly capacity, sender snapshot, reservation, proof consolidation and overflow block';
 end;
 $$;
 
