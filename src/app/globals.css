@@ -130,7 +130,8 @@
   }
 }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; max-width: 100%; overflow-x: clip; }
+body { max-width: 100%; overflow-x: clip; }
 ::selection { background: #4de2b5; color: #071a2d; }
 
 .pathline-sidebar {

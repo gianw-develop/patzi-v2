@@ -20,12 +20,19 @@ interface DbTransfer extends Omit<Transfer, "status_history" | "send_amount" | "
   status_history: DbTransferHistory[] | null;
 }
 
+export interface CreateRemittanceInput {
+  beneficiaryId: string;
+  sendCurrency: "EUR" | "USD";
+  sendAmount: number;
+  quotedExchangeRate: number;
+}
+
 interface TransferState {
   mode: TransferMode;
   transfers: Transfer[];
   loading: boolean;
   loadTransfers: (mode?: TransferMode) => Promise<void>;
-  addTransfer: (transfer: Transfer) => Promise<Transfer>;
+  addTransfer: (input: CreateRemittanceInput) => Promise<Transfer>;
   updateStatus: (id: string, status: TransferStatus, note?: string) => Promise<void>;
   completeWithProof: (id: string, file: File, note?: string) => Promise<void>;
 }
@@ -81,34 +88,16 @@ export const useTransferStore = create<TransferState>((set, get) => ({
     set({ transfers: ((data ?? []) as unknown as DbTransfer[]).map(mapTransfer), loading: false });
   },
 
-  addTransfer: async (transfer) => {
-    const { supabase, user } = await authenticatedClient();
-    const { data, error } = await supabase
-      .from("transfers")
-      .insert({
-        user_id: user.id,
-        beneficiary_id: transfer.beneficiary_id ?? null,
-        beneficiary_name: transfer.beneficiary_name,
-        beneficiary_country: transfer.beneficiary_country,
-        send_currency: transfer.send_currency,
-        receive_currency: transfer.receive_currency,
-        send_amount: transfer.send_amount,
-        receive_amount: transfer.receive_amount,
-        exchange_rate: transfer.exchange_rate,
-        fee: transfer.fee,
-        total_charged: transfer.total_charged,
-        delivery_method: transfer.delivery_method,
-        delivery_app: transfer.delivery_app ?? null,
-        speed: transfer.speed,
-        status: "pending",
-        reference: transfer.reference,
-        note: transfer.note ?? null,
-      })
-      .select("id")
-      .single();
+  addTransfer: async (input) => {
+    const { supabase } = await authenticatedClient();
+    const { data, error } = await supabase.rpc("create_remittance_request", {
+      p_beneficiary_id: input.beneficiaryId, p_send_currency: input.sendCurrency,
+      p_send_amount: input.sendAmount, p_quoted_exchange_rate: input.quotedExchangeRate,
+    });
     if (error || !data) throw error ?? new Error("No se pudo crear la remesa.");
+    const createdRow = Array.isArray(data) ? data[0] : data;
     await get().loadTransfers("user");
-    const created = get().transfers.find((item) => item.id === data.id);
+    const created = get().transfers.find((item) => item.id === createdRow.id);
     if (!created) throw new Error("La remesa se creó, pero no pudo cargarse.");
     return created;
   },
@@ -125,6 +114,9 @@ export const useTransferStore = create<TransferState>((set, get) => ({
 
   completeWithProof: async (id, file, note) => {
     if (file.size > 5 * 1024 * 1024) throw new Error("El comprobante supera 5 MB.");
+    if (!["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      throw new Error("El comprobante debe ser PDF, PNG, JPG o WEBP.");
+    }
     const { supabase } = await authenticatedClient();
     const transfer = get().transfers.find((item) => item.id === id);
     if (!transfer) throw new Error("No encontramos la remesa.");
@@ -135,6 +127,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
       .upload(path, file, { contentType: file.type, upsert: false });
     if (uploadError) throw uploadError;
 
+    const previousPath = transfer.proof_url;
     const { error } = await supabase
       .from("transfers")
       .update({ status: "completed", proof_url: path, proof_note: note ?? null })
@@ -142,6 +135,9 @@ export const useTransferStore = create<TransferState>((set, get) => ({
     if (error) {
       await supabase.storage.from("remittance-proofs").remove([path]);
       throw error;
+    }
+    if (previousPath && previousPath !== path) {
+      await supabase.storage.from("remittance-proofs").remove([previousPath]);
     }
     await get().loadTransfers("admin");
   },

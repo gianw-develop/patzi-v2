@@ -39,6 +39,7 @@ async function getVesParallelRate(): Promise<number | null> {
 interface DbRow {
   from_currency: string;
   to_currency: string;
+  rate: number | null;
   markup_percent: number;
   custom_rate: number | null;
   use_custom_rate: boolean | null;
@@ -52,6 +53,7 @@ async function getDbRates(): Promise<{
   customRates: Record<string, number>;
   fees: Record<string, { fixed: number; percent: number }>;
   activePairs: string[];
+  baseRates: Record<string, number>;
 }> {
   try {
     const sb = createClient(
@@ -60,17 +62,19 @@ async function getDbRates(): Promise<{
     );
     const { data, error } = await sb
       .from("exchange_rates")
-      .select("from_currency, to_currency, markup_percent, custom_rate, use_custom_rate, fee_fixed, fee_percent, is_active");
+      .select("from_currency, to_currency, rate, markup_percent, custom_rate, use_custom_rate, fee_fixed, fee_percent, is_active");
     if (error || !data || data.length === 0) {
-      return { markups: DEFAULT_MARKUPS, customRates: {}, fees: DEFAULT_FEES, activePairs: Object.keys(DEFAULT_MARKUPS) };
+      return { markups: DEFAULT_MARKUPS, customRates: {}, fees: DEFAULT_FEES, activePairs: Object.keys(DEFAULT_MARKUPS), baseRates: FALLBACK };
     }
     const markups: Record<string, number> = { ...DEFAULT_MARKUPS };
     const customRates: Record<string, number> = {};
     const fees: Record<string, { fixed: number; percent: number }> = { ...DEFAULT_FEES };
     const activePairs: string[] = [];
+    const baseRates: Record<string, number> = { ...FALLBACK };
     for (const row of data as DbRow[]) {
       const key = `${row.from_currency}-${row.to_currency}`;
       markups[key] = Number(row.markup_percent);
+      if (row.rate != null && Number(row.rate) > 0) baseRates[key] = Number(row.rate);
       fees[key] = {
         fixed: Number(row.fee_fixed ?? 0),
         percent: Number(row.fee_percent ?? 0),
@@ -80,14 +84,15 @@ async function getDbRates(): Promise<{
         customRates[key] = Number(row.custom_rate);
       }
     }
-    return { markups, customRates, fees, activePairs };
+    return { markups, customRates, fees, activePairs, baseRates };
   } catch {
-    return { markups: DEFAULT_MARKUPS, customRates: {}, fees: DEFAULT_FEES, activePairs: Object.keys(DEFAULT_MARKUPS) };
+    return { markups: DEFAULT_MARKUPS, customRates: {}, fees: DEFAULT_FEES, activePairs: Object.keys(DEFAULT_MARKUPS), baseRates: FALLBACK };
   }
 }
 
-export async function GET() {
-  const [{ markups, customRates, fees, activePairs }, vesParallel] = await Promise.all([
+export async function GET(request: Request) {
+  const useMarket = new URL(request.url).searchParams.get("market") === "1";
+  const [{ markups, customRates, fees, activePairs, baseRates }, vesParallel] = await Promise.all([
     getDbRates(),
     getVesParallelRate(),
   ]);
@@ -121,13 +126,14 @@ export async function GET() {
     };
 
     // Admin manual override has highest priority
-    const rates: Record<string, number> = { ...apiRates };
+    const rates: Record<string, number> = useMarket ? { ...apiRates } : { ...baseRates };
     for (const [pair, customRate] of Object.entries(customRates)) {
       rates[pair] = customRate;
     }
 
     return Response.json({
       rates,
+      marketRates: apiRates,
       markups,
       customRates,
       fees,
@@ -138,16 +144,18 @@ export async function GET() {
     });
   } catch {
     const usdVes = vesParallel ?? FALLBACK["USD-VES"];
-    const rates: Record<string, number> = {
+    const marketRates: Record<string, number> = {
       ...FALLBACK,
       "USD-VES": usdVes,
       "EUR-VES": vesParallel ? usdVes * FALLBACK["EUR-USD"] : FALLBACK["EUR-VES"],
     };
+    const rates: Record<string, number> = useMarket ? { ...marketRates } : { ...baseRates };
     for (const [pair, customRate] of Object.entries(customRates)) {
       rates[pair] = customRate;
     }
     return Response.json({
       rates,
+      marketRates,
       markups,
       customRates,
       fees,

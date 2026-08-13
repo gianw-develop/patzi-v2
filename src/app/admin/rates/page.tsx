@@ -77,12 +77,22 @@ export default function AdminRatesPage() {
     }
   };
 
-  const fetchRates = useCallback(async () => {
+  const fetchRates = useCallback(async (saveMarket = false) => {
     setLoading(true);
     try {
-      const res = await fetch("/api/rates");
+      const res = await fetch("/api/rates?market=1", { cache: "no-store" });
       const data = await res.json();
       setLiveRates(data.rates, data.updated_at, data.source);
+      if (saveMarket && data.marketRates) {
+        const supabase = createClient();
+        const updates = await Promise.all(Object.entries(data.marketRates).map(([pair, rate]) => {
+          const [from, to] = pair.split("-");
+          return supabase.from("exchange_rates").update({ rate: Number(rate), updated_at: new Date().toISOString() })
+            .eq("from_currency", from).eq("to_currency", to);
+        }));
+        const failed = updates.find((result) => result.error);
+        if (failed?.error) throw new Error(failed.error.message);
+      }
       if (data.markups) {
         setMarkups(data.markups);
         setInputs(Object.fromEntries(Object.entries(data.markups).map(([k, v]) => [k, String(v)])));
@@ -99,7 +109,7 @@ export default function AdminRatesPage() {
         setCustomRateInputs(Object.fromEntries(Object.entries(data.customRates).map(([k, v]) => [k, String(v)])));
         setCustomRateEnabled(Object.fromEntries(Object.keys(data.customRates).map((k) => [k, true])));
       }
-      toast.success("Tasas actualizadas desde el mercado");
+      toast.success(saveMarket ? "Tasas del mercado guardadas en Patzi" : "Tasas del mercado consultadas");
     } catch {
       toast.error("Error al obtener tasas. Usando valores anteriores.");
     } finally {
@@ -176,12 +186,12 @@ export default function AdminRatesPage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={fetchRates}
+              onClick={() => void fetchRates(true)}
               disabled={loading}
               className="gap-1.5"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-              {loading ? "Actualizando..." : "Actualizar ahora"}
+              {loading ? "Actualizando..." : "Actualizar y guardar"}
             </Button>
           </div>
         </div>

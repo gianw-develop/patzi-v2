@@ -19,17 +19,63 @@ export default function StableSenderForm({
   initialValue,
   onSubmit,
   submitLabel = "Guardar remitente",
+  draftKey,
 }: {
   initialValue?: StableSenderInput;
   onSubmit: (input: StableSenderInput) => Promise<void>;
   submitLabel?: string;
+  draftKey?: string;
 }) {
   const [form, setForm] = useState<StableSenderInput>(initialValue ?? emptySender);
   const [saving, setSaving] = useState(false);
+  const [draftReady, setDraftReady] = useState(Boolean(initialValue) || !draftKey);
+  const [hydratedDraftKey, setHydratedDraftKey] = useState<string | null>(null);
+
+  const initialType = initialValue?.type;
+  const initialLegalName = initialValue?.legalName;
+  const initialEmail = initialValue?.email;
+  const initialPhone = initialValue?.phone;
+  const initialBankName = initialValue?.bankName;
+  const initialAccountLast4 = initialValue?.accountLast4;
+  const editing = initialValue !== undefined;
 
   useEffect(() => {
-    setForm(initialValue ?? emptySender);
-  }, [initialValue]);
+    if (editing) {
+      setForm({
+        type: initialType ?? "person",
+        legalName: initialLegalName ?? "",
+        email: initialEmail ?? "",
+        phone: initialPhone ?? "",
+        bankName: initialBankName ?? "",
+        accountLast4: initialAccountLast4 ?? "",
+      });
+      setDraftReady(true);
+      return;
+    }
+    if (!draftKey) {
+      setForm(emptySender);
+      setDraftReady(true);
+      return;
+    }
+    try {
+      const saved = window.sessionStorage.getItem(draftKey);
+      if (saved) setForm({ ...emptySender, ...(JSON.parse(saved) as StableSenderInput) });
+    } catch {
+      // Draft storage can be unavailable in private or embedded browsers.
+    } finally {
+      setHydratedDraftKey(draftKey);
+      setDraftReady(true);
+    }
+  }, [draftKey, editing, initialAccountLast4, initialBankName, initialEmail, initialLegalName, initialPhone, initialType]);
+
+  useEffect(() => {
+    if (!draftReady || editing || !draftKey || hydratedDraftKey !== draftKey) return;
+    try {
+      window.sessionStorage.setItem(draftKey, JSON.stringify(form));
+    } catch {
+      // The form remains usable when browser storage is unavailable.
+    }
+  }, [draftKey, draftReady, editing, form, hydratedDraftKey]);
 
   const update = (key: keyof StableSenderInput, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const valid = form.legalName.trim().length >= 2
@@ -49,7 +95,12 @@ export default function StableSenderForm({
         bankName: form.bankName?.trim(),
         accountLast4: form.accountLast4?.trim(),
       });
-      if (!initialValue) setForm(emptySender);
+      if (!editing) {
+        setForm(emptySender);
+        if (draftKey) {
+          try { window.sessionStorage.removeItem(draftKey); } catch { /* Storage is optional. */ }
+        }
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo guardar el remitente.");
     } finally {

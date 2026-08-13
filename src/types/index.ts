@@ -4,7 +4,6 @@ export type TransferSpeed = "express" | "economy";
 export type DeliveryMethod = "bank" | "cash" | "mobile_money" | "home_delivery";
 export type KYCStatus = "not_submitted" | "pending" | "approved" | "rejected";
 export type UserRole = "user" | "admin";
-export type WalletCurrency = "EUR" | "USD";
 
 export interface User {
   id: string;
@@ -21,25 +20,6 @@ export interface User {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-}
-
-export interface Wallet {
-  id: string;
-  user_id: string;
-  currency: WalletCurrency;
-  balance: number;
-  is_active: boolean;
-  created_at: string;
-}
-
-export interface WalletTransaction {
-  id: string;
-  wallet_id: string;
-  type: "deposit" | "withdrawal" | "transfer_out" | "transfer_in";
-  amount: number;
-  currency: WalletCurrency;
-  description: string;
-  created_at: string;
 }
 
 export interface Beneficiary {
@@ -80,6 +60,10 @@ export interface Transfer {
   note?: string;
   proof_url?: string;
   proof_note?: string;
+  beneficiary_snapshot?: {
+    full_name?: string; country?: string; currency?: Currency; delivery_method?: DeliveryMethod;
+    delivery_app?: string; bank_name?: string; account_number?: string; phone?: string; email?: string; cedula?: string;
+  };
   customer_name?: string;
   customer_email?: string;
   created_at: string;

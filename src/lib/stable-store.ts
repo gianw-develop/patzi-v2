@@ -413,7 +413,8 @@ export const useStableStore = create<StableState>((set, get) => ({
 
   load: async (requestedMode) => {
     const mode = requestedMode ?? get().mode;
-    set({ loading: true, error: null, mode });
+    const firstLoad = get().loading && get().operations.length === 0 && get().senders.length === 0 && get().accounts.length === 0;
+    set({ error: null, mode, ...(firstLoad ? { loading: true } : {}) });
     try {
       const { supabase, user } = await currentUser();
       const [profileResult, operationsResult, sendersResult, accountsResult, capacityResult] = await Promise.all([
@@ -546,6 +547,10 @@ export const useStableStore = create<StableState>((set, get) => ({
       throw updateError;
     }
 
+    const previousPath = get().operations.find((operation) => operation.id === operationId)?.proof?.path;
+    if (previousPath && previousPath !== path) {
+      await supabase.storage.from("stable-proofs").remove([previousPath]);
+    }
     await get().load("user");
   },
 

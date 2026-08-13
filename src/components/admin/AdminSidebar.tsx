@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, ArrowLeftRight, Building2, FileCheck2, LogOut, Percent, Settings, ShieldCheck, UserCheck, Users } from "lucide-react";
+import { Activity, ArrowLeftRight, Building2, LogOut, Percent, Settings, ShieldCheck, UserCheck, Users } from "lucide-react";
 import { toast } from "sonner";
 import PathlineLogo from "@/components/brand/PathlineLogo";
 import { cn } from "@/lib/utils";
@@ -18,7 +18,6 @@ const nav = [
   { href: "/admin/users", label: "Clientes", icon: Users },
   { href: "/admin/accounts", label: "Cuentas receptoras", icon: Building2 },
   { href: "/admin/rates", label: "Tasas y comisiones", icon: Percent },
-  { href: "/admin/deposits", label: "Comprobantes", icon: FileCheck2 },
   { href: "/admin/kyc", label: "Verificación KYC", icon: UserCheck },
   { href: "/admin/settings", label: "Configuración", icon: Settings },
 ];

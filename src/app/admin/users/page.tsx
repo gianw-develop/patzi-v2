@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import Header from "@/components/dashboard/Header";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -80,7 +81,7 @@ export default function AdminUsersPage() {
     await loadUsers();
   };
 
-  const updateAccess = async (updates: { new_kyc_status?: string; new_stable_eligible?: boolean }) => {
+  const updateAccess = async (updates: { new_stable_eligible?: boolean }) => {
     if (!selected) return;
     const supabase = createClient();
     const { error } = await supabase.rpc("admin_update_user_access", {
@@ -251,16 +252,10 @@ export default function AdminUsersPage() {
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2 pt-2">
-                <Button
-                  onClick={() => void updateAccess({ new_kyc_status: selected.kyc_status === "approved" ? "pending" : "approved" })}
-                  variant="outline"
-                  size="sm"
-                  className="border-blue-200 text-blue-700"
-                >
-                  {selected.kyc_status === "approved" ? "Reabrir KYC" : "Aprobar KYC"}
-                </Button>
+                <Button asChild variant="outline" size="sm" className="border-blue-200 text-blue-700"><Link href="/admin/kyc">Revisar en KYC</Link></Button>
                 <Button
                   onClick={() => void updateAccess({ new_stable_eligible: !selected.stable_eligible })}
+                  disabled={!selected.stable_eligible && selected.kyc_status !== "approved"}
                   variant="outline"
                   size="sm"
                   className="border-cyan-200 text-cyan-700"

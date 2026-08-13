@@ -28,7 +28,7 @@ const STATUS_CONFIG = {
 const TRACKER_STEPS = ["pending", "processing", "completed"];
 
 export default function HistoryPage() {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("search") ?? "");
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState<Transfer | null>(null);
   const { transfers: allTransfers, loadTransfers } = useTransferStore();
@@ -212,8 +212,11 @@ export default function HistoryPage() {
                   ["Beneficiario", selected.beneficiary_name],
                   ["País destino", selected.beneficiary_country],
                   ["Método de entrega", selected.delivery_app || (selected.delivery_method === "bank" ? "Transferencia bancaria" : "Pago móvil")],
+                  ["Banco / proveedor", selected.beneficiary_snapshot?.bank_name || "—"],
+                  ["Cuenta / IBAN", selected.beneficiary_snapshot?.account_number || "—"],
+                  ["Teléfono / correo", selected.beneficiary_snapshot?.phone || selected.beneficiary_snapshot?.email || "—"],
                   ["Tasa aplicada", `1 ${selected.send_currency} = ${selected.exchange_rate.toFixed(4)} ${selected.receive_currency}`],
-                  ["Comisión", "Gratis ✓"],
+                  ["Comisión", `${CURRENCY_INFO[selected.send_currency].symbol}${selected.fee.toFixed(2)} ${selected.send_currency}`],
                   ["Fecha", format(new Date(selected.created_at), "d 'de' MMMM yyyy, HH:mm", { locale: es })],
                 ].map(([label, value]) => (
                   <div key={label} className="flex justify-between">

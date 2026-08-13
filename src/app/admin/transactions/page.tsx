@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Header from "@/components/dashboard/Header";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,7 @@ import { CURRENCY_INFO } from "@/lib/exchange-rates";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
-import type { Transfer, TransferStatus } from "@/types";
+import type { Currency, Transfer, TransferStatus } from "@/types";
 import { signedRemittanceProof, useTransferStore } from "@/lib/transfer-store";
 
 const STATUS_CONFIG: Record<TransferStatus, { label: string; color: string; icon: React.ElementType }> = {
@@ -102,12 +102,17 @@ export default function AdminTransactionsPage() {
     }
   };
 
-  const totalVolume = filtered.reduce((acc, t) => acc + t.send_amount, 0);
-  const totalFees = filtered.reduce((acc, t) => acc + t.fee, 0);
+  const totalsByCurrency = filtered.reduce<Record<string, { volume: number; fees: number }>>((totals, transfer) => {
+    const current = totals[transfer.send_currency] ?? { volume: 0, fees: 0 };
+    totals[transfer.send_currency] = { volume: current.volume + transfer.send_amount, fees: current.fees + transfer.fee };
+    return totals;
+  }, {});
+  const volumeLabel = Object.entries(totalsByCurrency).map(([currency, total]) => `${CURRENCY_INFO[currency as Currency].symbol}${total.volume.toFixed(2)} ${currency}`).join(" · ") || "—";
+  const feesLabel = Object.entries(totalsByCurrency).map(([currency, total]) => `${CURRENCY_INFO[currency as Currency].symbol}${total.fees.toFixed(2)} ${currency}`).join(" · ") || "—";
 
   return (
     <>
-      <Header title="Transacciones" subtitle={`${filtered.length} transacciones · Volumen: €${totalVolume.toFixed(2)}`} />
+      <Header title="Transacciones" subtitle={`${filtered.length} transacciones · Volumen: ${volumeLabel}`} />
       <div className="flex-1 p-3 sm:p-6 space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {(["all", "pending", "processing", "completed"] as const).map((s) => {
@@ -248,8 +253,8 @@ export default function AdminTransactionsPage() {
           <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-sm">
             <span className="text-slate-500">{filtered.length} transacciones</span>
             <div className="flex gap-4">
-              <span className="text-slate-600">Volumen: <strong className="text-slate-800">€{totalVolume.toFixed(2)}</strong></span>
-              <span className="text-emerald-600">Fees: <strong>€{totalFees.toFixed(2)}</strong></span>
+              <span className="text-slate-600">Volumen: <strong className="text-slate-800">{volumeLabel}</strong></span>
+              <span className="text-emerald-600">Comisiones: <strong>{feesLabel}</strong></span>
             </div>
           </div>
         </Card>
@@ -282,6 +287,11 @@ export default function AdminTransactionsPage() {
               {[
                 ["Beneficiario", selected.beneficiary_name],
                 ["Método", selected.delivery_app || (selected.delivery_method === "bank" ? "Transferencia bancaria" : "Pago móvil")],
+                ["Banco / proveedor", selected.beneficiary_snapshot?.bank_name || "—"],
+                ["Cuenta / IBAN", selected.beneficiary_snapshot?.account_number || "—"],
+                ["Teléfono", selected.beneficiary_snapshot?.phone || "—"],
+                ["Correo", selected.beneficiary_snapshot?.email || "—"],
+                ["Documento", selected.beneficiary_snapshot?.cedula || "—"],
                 ["Tasa", `1 ${selected.send_currency} = ${selected.exchange_rate.toFixed(4)} ${selected.receive_currency}`],
                 ["Fee cobrado", `${CURRENCY_INFO[selected.send_currency].symbol}${selected.fee.toFixed(2)}`],
                 ["Velocidad", selected.speed === "express" ? "⚡ Express" : "🕐 Economy"],

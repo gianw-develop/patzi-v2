@@ -63,6 +63,16 @@ export default function LoginPage() {
         throw new Error("Tu cuenta está desactivada. Contacta con soporte.");
       }
 
+      const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (assurance?.nextLevel === "aal2" && assurance.currentLevel !== "aal2") {
+        const requestedNext = new URLSearchParams(window.location.search).get("next");
+        const safeNext = requestedNext?.startsWith("/") && !requestedNext.startsWith("//")
+          ? requestedNext
+          : profile.role === "admin" ? "/admin" : "/dashboard";
+        router.replace(`/auth/mfa?next=${encodeURIComponent(safeNext)}`);
+        return;
+      }
+
       setUser({
         id: profile.id,
         full_name: profile.full_name,
@@ -95,7 +105,7 @@ export default function LoginPage() {
 
   return (
     <AuthShell>
-      <div className="premium-card rounded-[2rem] p-6 sm:p-9">
+      <div className="premium-card min-w-0 max-w-full overflow-hidden rounded-[2rem] p-5 sm:p-9">
         <div className="relative z-10">
           <div className="flex items-start justify-between gap-4"><div><p className="premium-kicker text-[#087F62]">{t("Bienvenido de nuevo")}</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.04em] sm:text-4xl">{t("Inicia sesión en Patzi")}</h1><p className="mt-3 text-sm leading-6 text-[#071A2D]/50">{t("Accede a tus remesas, operaciones Stable y comprobantes.")}</p></div><div className="hidden h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[#EAF8F3] text-[#087F62] sm:grid"><ShieldCheck className="h-6 w-6" /></div></div>
 

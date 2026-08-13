@@ -1,5 +1,4 @@
 import { Smartphone, Monitor, Globe, Download, Bell, Shield, CheckCircle } from "lucide-react";
-import Link from "next/link";
 
 const STEPS_IOS = [
   "Abre patzi.net en Safari",

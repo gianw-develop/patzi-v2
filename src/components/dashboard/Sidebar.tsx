@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CircleHelp, ContactRound, FileText, History, LogOut, Send, Settings, UserRound, Users, WalletCards } from "lucide-react";
+import { CircleHelp, ContactRound, FileText, History, LogOut, Send, Settings, UserRound, Users } from "lucide-react";
 import { toast } from "sonner";
 import PathlineLogo from "@/components/brand/PathlineLogo";
 import { cn } from "@/lib/utils";
@@ -16,8 +16,7 @@ const navItems = [
   { href: "/dashboard/send", label: "Enviar dinero", icon: Send },
   { href: "/dashboard/history", label: "Operaciones", icon: History },
   { href: "/dashboard/beneficiaries", label: "Destinatarios", icon: Users },
-  { href: "/dashboard/wallet", label: "Wallets", icon: WalletCards },
-  { href: "/dashboard/profile", label: "Comprobantes", icon: FileText },
+  { href: "/dashboard/profile", label: "Perfil y KYC", icon: FileText },
   { href: "/dashboard/settings", label: "Configuración", icon: Settings },
 ];
 
@@ -58,7 +57,7 @@ export default function Sidebar() {
               </Link>
             );
           })}
-          <Link href="#ayuda" className="pathline-nav-item"><CircleHelp className="h-[18px] w-[18px]" />{t("Ayuda")}</Link>
+          <Link href="/dashboard/settings#support" onClick={close} className="pathline-nav-item"><CircleHelp className="h-[18px] w-[18px]" />{t("Ayuda")}</Link>
         </nav>
         <div className="border-t border-white/10 p-4">
           <div className="mb-3 flex items-center gap-3 rounded-2xl bg-white/[0.06] p-3">

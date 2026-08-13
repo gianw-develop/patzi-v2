@@ -12,6 +12,7 @@ import { AssetChip, AssetMark, FlagMark } from "@/components/brand/FinancialMark
 import OperationDocuments from "@/components/stable/OperationDocuments";
 import StableSenderForm from "@/components/stable/StableSenderForm";
 import { Button } from "@/components/ui/button";
+import { createClient } from "@/lib/supabase";
 import {
   formatUsd, type StableAsset, type StableOperation, type StablePaymentRail,
   useStableStore,
@@ -20,10 +21,23 @@ import {
 const isEthAddress = (value: string) => /^0x[a-fA-F0-9]{40}$/.test(value);
 const steps = ["Monto", "Remitente USD", "Wallet", "Pago y comprobante"];
 
+interface StableDraft {
+  step: number;
+  amount: string;
+  asset: StableAsset;
+  paymentRail: StablePaymentRail;
+  wallet: string;
+  senderId: string;
+  operationId?: string;
+  updatedAt: string;
+}
+
+const draftKeyFor = (userId: string) => `patzi-stable-draft:${userId}`;
+
 export default function StableOperationFlow() {
   const router = useRouter();
   const {
-    stableEligible, kycVerified, accounts, capacity, senders,
+    stableEligible, kycVerified, accounts, capacity, senders, operations,
     addSender, addOperation, uploadProof, load, loading,
   } = useStableStore();
   const [step, setStep] = useState(0);
@@ -36,6 +50,10 @@ export default function StableOperationFlow() {
   const [senderConfirmed, setSenderConfirmed] = useState(false);
   const [operation, setOperation] = useState<StableOperation | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [draftUserId, setDraftUserId] = useState("");
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftOperationId, setDraftOperationId] = useState("");
+  const [draftRestored, setDraftRestored] = useState(false);
 
   const parsedAmount = Number(amount) || 0;
   const selectedCapacity = capacity.find((item) => item.paymentRail === paymentRail);
@@ -53,6 +71,68 @@ export default function StableOperationFlow() {
     const interval = window.setInterval(() => void load("user"), 15_000);
     return () => window.clearInterval(interval);
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const { data: { user } } = await createClient().auth.getUser();
+        if (!active || !user) return;
+        setDraftUserId(user.id);
+        const saved = window.sessionStorage.getItem(draftKeyFor(user.id));
+        if (saved) {
+          const draft = JSON.parse(saved) as Partial<StableDraft>;
+          if (typeof draft.amount === "string") setAmount(draft.amount);
+          if (draft.asset === "USDT" || draft.asset === "USDC") setAsset(draft.asset);
+          if (draft.paymentRail === "ACH" || draft.paymentRail === "WIRE") setPaymentRail(draft.paymentRail);
+          if (typeof draft.wallet === "string") setWallet(draft.wallet);
+          if (typeof draft.senderId === "string") setSenderId(draft.senderId);
+          if (typeof draft.operationId === "string") setDraftOperationId(draft.operationId);
+          if (typeof draft.step === "number") setStep(Math.max(0, Math.min(draft.operationId ? 3 : 2, draft.step)));
+          setDraftRestored(true);
+        }
+      } catch {
+        // The flow still works when auth or session storage is unavailable.
+      } finally {
+        if (active) setDraftReady(true);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!draftReady || !draftUserId) return;
+    const draft: StableDraft = {
+      step,
+      amount,
+      asset,
+      paymentRail,
+      wallet,
+      senderId,
+      operationId: operation?.id ?? (draftOperationId || undefined),
+      updatedAt: new Date().toISOString(),
+    };
+    try { window.sessionStorage.setItem(draftKeyFor(draftUserId), JSON.stringify(draft)); } catch { /* Storage is optional. */ }
+  }, [amount, asset, draftOperationId, draftReady, draftUserId, operation?.id, paymentRail, senderId, step, wallet]);
+
+  useEffect(() => {
+    if (!draftReady || !draftOperationId || operation) return;
+    const recovered = operations.find((item) => item.id === draftOperationId);
+    if (!recovered) return;
+    if (["waiting_payment", "correction_requested"].includes(recovered.status)) {
+      setAmount(String(recovered.usdAmount));
+      setAsset(recovered.asset);
+      setPaymentRail(recovered.paymentRail);
+      setWallet(recovered.walletAddress);
+      setSenderId(recovered.senderId ?? "");
+      setOperation(recovered);
+      setStep(3);
+      setDraftRestored(true);
+      return;
+    }
+    try { window.sessionStorage.removeItem(draftKeyFor(draftUserId)); } catch { /* Storage is optional. */ }
+    setDraftOperationId("");
+  }, [draftOperationId, draftReady, draftUserId, operation, operations]);
 
   const accountCopyText = useMemo(() => {
     if (!operation || !assignedAccount) return "";
@@ -91,7 +171,12 @@ export default function StableOperationFlow() {
         senderId: selectedSender.id,
         senderAccountConfirmed: senderConfirmed,
       });
+      if (draftUserId) {
+        const createdDraft: StableDraft = { step: 3, amount, asset, paymentRail, wallet, senderId: selectedSender.id, operationId: created.id, updatedAt: new Date().toISOString() };
+        try { window.sessionStorage.setItem(draftKeyFor(draftUserId), JSON.stringify(createdDraft)); } catch { /* Storage is optional. */ }
+      }
       setOperation(created);
+      setDraftOperationId(created.id);
       setStep(3);
       toast.success(`Operación ${created.reference} creada`);
     } catch (error) {
@@ -101,11 +186,30 @@ export default function StableOperationFlow() {
     }
   };
 
+  const startAnotherOperation = () => {
+    if (draftUserId) {
+      try { window.sessionStorage.removeItem(draftKeyFor(draftUserId)); } catch { /* Storage is optional. */ }
+    }
+    setOperation(null);
+    setDraftOperationId("");
+    setStep(0);
+    setAmount("1000");
+    setAsset("USDT");
+    setPaymentRail("ACH");
+    setWallet("");
+    setSenderId("");
+    setSenderConfirmed(false);
+    setDraftRestored(false);
+  };
+
   const upload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !operation) return;
     try {
       await uploadProof(operation.id, file);
+      if (draftUserId) {
+        try { window.sessionStorage.removeItem(draftKeyFor(draftUserId)); } catch { /* Storage is optional. */ }
+      }
       toast.success("Comprobante enviado para revisión");
       router.push("/dashboard");
     } catch (error) {
@@ -124,7 +228,10 @@ export default function StableOperationFlow() {
       <Header title="Patzi Stable" subtitle="USD a USDT o USDC · Ethereum ERC-20" />
       <div className="pathline-grid flex-1 bg-[#F5F7F2] p-4 sm:p-8">
         <div className="mx-auto max-w-6xl">
-          <button onClick={() => step > 0 && !operation ? setStep(step - 1) : router.back()} className="mb-5 flex items-center gap-2 text-xs font-semibold text-[#071A2D]/55"><ArrowLeft className="h-4 w-4" />Volver</button>
+          <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <button onClick={() => step > 0 && !operation ? setStep(step - 1) : router.back()} className="flex items-center gap-2 text-xs font-semibold text-[#071A2D]/55"><ArrowLeft className="h-4 w-4" />Volver</button>
+            <span aria-live="polite" className="flex items-center gap-2 text-xs font-semibold text-[#087F62]"><CheckCircle2 className="h-4 w-4" />{draftRestored ? "Borrador recuperado y protegido" : "Tus cambios se guardan en este dispositivo"}</span>
+          </div>
           <div className="mb-8 grid grid-cols-4 gap-2">{steps.map((label, index) => <div key={label}><div className={`h-1.5 rounded-full transition-colors ${index <= step ? "bg-[#4DE2B5]" : "bg-[#071A2D]/10"}`} /><p className={`mt-2 text-[9px] font-semibold uppercase tracking-[.1em] sm:text-[10px] ${index === step ? "text-[#071A2D]" : "text-[#071A2D]/30"}`}>{label}</p></div>)}</div>
 
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -141,7 +248,7 @@ export default function StableOperationFlow() {
 
               {step === 1 && <div>
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start"><div><p className="premium-kicker text-[#087F62]">Identidad del depósito</p><h1 className="mt-1 text-2xl font-semibold">¿Quién enviará los USD?</h1><p className="mt-2 text-sm text-[#071A2D]/50">Selecciona al titular real de la cuenta bancaria.</p></div><Button variant="outline" onClick={() => setShowNewSender((value) => !value)} className="h-10"><Plus className="mr-2 h-4 w-4" />{showNewSender ? "Ver guardados" : "Nuevo remitente"}</Button></div>
-                {showNewSender || activeSenders.length === 0 ? <div className="mt-6 rounded-2xl border border-[#071A2D]/9 bg-[#F6F8F6] p-4 sm:p-5"><StableSenderForm onSubmit={async (input) => { const sender = await addSender(input); setSenderId(sender.id); setShowNewSender(false); toast.success("Remitente guardado"); }} /></div> : <div className="mt-6 grid gap-3 sm:grid-cols-2">{activeSenders.map((sender) => { const Icon = sender.type === "business" ? Building2 : UserRound; return <button key={sender.id} onClick={() => setSenderId(sender.id)} className={`rounded-2xl border-2 p-4 text-left ${senderId === sender.id ? "border-[#0AA883] bg-[#E7FAF3] shadow-[0_16px_35px_rgba(10,168,131,.1)]" : "border-[#071A2D]/9 bg-white"}`}><div className="flex items-start justify-between"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#071A2D] text-white"><Icon className="h-5 w-5" /></div>{senderId === sender.id && <CheckCircle2 className="h-5 w-5 text-[#087F62]" />}</div><p className="mt-3 font-semibold">{sender.legalName}</p><p className="mt-1 text-[10px] text-[#071A2D]/45">{sender.email} · {sender.phone}</p>{sender.bankName && <p className="mt-2 text-[10px] font-medium text-[#356DE5]">{sender.bankName}{sender.accountLast4 ? ` · •••• ${sender.accountLast4}` : ""}</p>}</button>; })}</div>}
+                {showNewSender || activeSenders.length === 0 ? <div className="mt-6 rounded-2xl border border-[#071A2D]/9 bg-[#F6F8F6] p-4 sm:p-5"><StableSenderForm draftKey={draftUserId ? `patzi-stable-sender-draft:${draftUserId}` : undefined} onSubmit={async (input) => { const sender = await addSender(input); setSenderId(sender.id); setShowNewSender(false); toast.success("Remitente guardado"); }} /></div> : <div className="mt-6 grid gap-3 sm:grid-cols-2">{activeSenders.map((sender) => { const Icon = sender.type === "business" ? Building2 : UserRound; return <button key={sender.id} onClick={() => setSenderId(sender.id)} className={`rounded-2xl border-2 p-4 text-left ${senderId === sender.id ? "border-[#0AA883] bg-[#E7FAF3] shadow-[0_16px_35px_rgba(10,168,131,.1)]" : "border-[#071A2D]/9 bg-white"}`}><div className="flex items-start justify-between"><div className="grid h-10 w-10 place-items-center rounded-xl bg-[#071A2D] text-white"><Icon className="h-5 w-5" /></div>{senderId === sender.id && <CheckCircle2 className="h-5 w-5 text-[#087F62]" />}</div><p className="mt-3 font-semibold">{sender.legalName}</p><p className="mt-1 text-[10px] text-[#071A2D]/45">{sender.email} · {sender.phone}</p>{sender.bankName && <p className="mt-2 text-[10px] font-medium text-[#356DE5]">{sender.bankName}{sender.accountLast4 ? ` · •••• ${sender.accountLast4}` : ""}</p>}</button>; })}</div>}
                 {!showNewSender && activeSenders.length > 0 && <Button onClick={() => setStep(2)} disabled={!selectedSender} className="mt-8 h-12 w-full bg-[#071A2D] text-white">Usar este remitente <ArrowRight className="ml-2 h-4 w-4" /></Button>}
               </div>}
 
@@ -155,7 +262,7 @@ export default function StableOperationFlow() {
               </div>}
 
               {step === 3 && operation && assignedAccount && <div>
-                <div className="flex items-start justify-between gap-4"><div><p className="premium-kicker text-[#087F62]">Operación creada</p><h1 className="mt-1 text-3xl font-semibold">{operation.reference}</h1><p className="mt-2 text-sm text-[#071A2D]/48">Remitente: <b>{operation.senderLegalName}</b></p></div><span className="status-pill status-waiting">Esperando pago</span></div>
+                <div className="flex items-start justify-between gap-4"><div><p className="premium-kicker text-[#087F62]">Operación creada</p><h1 className="mt-1 text-3xl font-semibold">{operation.reference}</h1><p className="mt-2 text-sm text-[#071A2D]/48">Remitente: <b>{operation.senderLegalName}</b></p></div><div className="flex flex-col items-end gap-2"><span className="status-pill status-waiting">Esperando pago</span><button type="button" onClick={startAnotherOperation} className="text-xs font-semibold text-[#087F62] underline underline-offset-4">Crear otra operación</button></div></div>
                 <div className="mt-6 rounded-2xl border border-[#071A2D]/9 bg-[#F5F7F2] p-5"><div className="mb-4 flex items-center justify-between gap-2"><span className="flex items-center gap-2 font-semibold"><Landmark className="h-5 w-5" />Cuenta asignada · {operation.paymentRail}</span><span className="rounded-full bg-[#E7FAF3] px-2.5 py-1 text-[9px] font-semibold text-[#087F62]">CUPO RESERVADO 24H</span></div>{[["Banco", assignedAccount.bank], ["Beneficiario", assignedAccount.holder], ["Cuenta", assignedAccount.accountNumber], [`Routing ${operation.paymentRail}`, operation.paymentRail === "ACH" ? assignedAccount.achRoutingNumber : assignedAccount.wireRoutingNumber], ["Tipo", assignedAccount.accountType]].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-4 border-t border-[#071A2D]/7 py-3 text-sm"><span className="text-[#071A2D]/45">{label}</span><b className="text-right">{value}</b></div>)}<button type="button" onClick={() => void copyAssignedAccount()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#071A2D] px-4 py-3 text-sm font-semibold text-white"><Copy className="h-4 w-4" />Copiar datos bancarios completos</button></div>
                 <div className="mt-5 rounded-xl border border-[#FF765B]/25 bg-[#FF765B]/10 p-4 text-xs leading-5 text-[#A13E2C]">Envía exactamente <b>{formatUsd(operation.usdAmount)}</b> desde la cuenta de <b>{operation.senderLegalName}</b>. Después sube el comprobante PDF.</div>
                 <label className="mt-5 flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-[#071A2D]/12 p-7 text-center hover:border-[#4DE2B5]"><Upload className="h-7 w-7 text-[#087F62]" /><span className="mt-3 font-semibold">Subir comprobante PDF</span><span className="mt-1 text-xs text-[#071A2D]/40">PDF · máximo 5 MB</span><input type="file" accept="application/pdf" className="hidden" onChange={upload} /></label>

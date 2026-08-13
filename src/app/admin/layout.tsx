@@ -9,6 +9,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   if (!user) redirect("/auth/login?next=/admin");
 
+  const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (assurance?.nextLevel === "aal2" && assurance.currentLevel !== "aal2") {
+    redirect("/auth/mfa?next=/admin");
+  }
+
   const { data: profile } = await supabase
     .from("profiles")
     .select("id, full_name, email, phone, role, kyc_status, stable_eligible, is_active")

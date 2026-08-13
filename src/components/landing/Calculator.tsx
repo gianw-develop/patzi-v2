@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, ArrowDownUp, Zap, ShieldCheck } from "lucide-react";
 import { CURRENCY_INFO } from "@/lib/exchange-rates";
@@ -48,7 +49,6 @@ export default function Calculator() {
       const amt = parseFloat(receiveAmount);
       setSendAmount(isNaN(amt) || amt <= 0 ? "" : (amt / rate).toFixed(2));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sendAmount, receiveAmount, sendCurrency, receiveCurrency, liveRates, markups, activeField]);
 
   const handleSendChange = (v: string) => { setActiveField("send"); setSendAmount(v); };
@@ -107,7 +107,7 @@ export default function Calculator() {
                       : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
                   }`}
                 >
-                  <img src={CURRENCY_INFO[c].flagUrl} alt={c} className="w-5 h-3.5 object-cover rounded-[2px]" />
+                  <Image src={CURRENCY_INFO[c].flagUrl} alt={c} width={20} height={14} unoptimized className="h-3.5 w-5 rounded-[2px] object-cover" />
                   <span className="text-xs">{c}</span>
                 </button>
               ))}
@@ -154,7 +154,7 @@ export default function Calculator() {
                       : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
                   }`}
                 >
-                  <img src={CURRENCY_INFO[c].flagUrl} alt={c} className="w-5 h-3.5 object-cover rounded-[2px]" />
+                  <Image src={CURRENCY_INFO[c].flagUrl} alt={c} width={20} height={14} unoptimized className="h-3.5 w-5 rounded-[2px] object-cover" />
                   <span className="text-xs">{c}</span>
                 </button>
               ))}

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { EXCHANGE_RATES, CURRENCY_INFO } from "@/lib/exchange-rates";
 import { TrendingUp } from "lucide-react";
 
@@ -33,9 +34,9 @@ export default function RatesTable() {
                 className={`grid grid-cols-4 px-6 py-4 items-center ${i % 2 === 0 ? "bg-white/3" : ""} hover:bg-white/8 transition-colors`}
               >
                 <div className="flex items-center gap-3">
-                  <img src={fromInfo.flagUrl} alt={fromInfo.country} className="w-6 h-4 object-cover rounded-sm" />
+                  <Image src={fromInfo.flagUrl} alt={fromInfo.country} width={24} height={16} unoptimized className="h-4 w-6 rounded-sm object-cover" />
                   <span className="text-white/40 text-sm">→</span>
-                  <img src={toInfo.flagUrl} alt={toInfo.country} className="w-6 h-4 object-cover rounded-sm" />
+                  <Image src={toInfo.flagUrl} alt={toInfo.country} width={24} height={16} unoptimized className="h-4 w-6 rounded-sm object-cover" />
                   <div>
                     <p className="text-white font-semibold text-sm">
                       {rate.from_currency} → {rate.to_currency}

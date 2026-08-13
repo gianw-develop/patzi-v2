@@ -10,7 +10,7 @@ import { useLanguage } from "@/lib/i18n";
 export default function AuthShell({ children, variant = "login" }: { children: React.ReactNode; variant?: "login" | "register" }) {
   const { t } = useLanguage();
   return (
-    <main className="premium-shell min-h-screen bg-[#F2F6F3] text-[#071A2D] lg:grid lg:grid-cols-[.92fr_1.08fr]">
+    <main className="premium-shell min-h-screen max-w-full overflow-x-clip bg-[#F2F6F3] text-[#071A2D] lg:grid lg:grid-cols-[.92fr_1.08fr]">
       <section className="relative hidden min-h-screen overflow-hidden bg-[#061827] p-10 text-white lg:flex lg:flex-col xl:p-14">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_24%_14%,rgba(77,226,181,.18),transparent_30%),radial-gradient(circle_at_82%_77%,rgba(255,118,91,.13),transparent_27%)]" />
         <div className="relative z-10 flex items-center justify-between"><Link href="/" className="w-fit"><PathlineLogo inverse /></Link><LanguageSwitcher inverse /></div>
@@ -39,14 +39,14 @@ export default function AuthShell({ children, variant = "login" }: { children: R
         </div>
       </section>
 
-      <section className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-10 sm:px-8 lg:px-12">
+      <section className="relative flex min-h-screen min-w-0 items-center justify-center overflow-hidden px-5 py-10 sm:px-8 lg:px-12">
         <div className="absolute inset-0 pathline-grid opacity-70" />
         <div className="absolute -right-24 top-[-6rem] h-80 w-80 rounded-full bg-[#4DE2B5]/13 blur-3xl" />
         <div className="absolute -bottom-28 -left-28 h-72 w-72 rounded-full bg-[#FF765B]/10 blur-3xl" />
         <div className="absolute inset-x-[-28%] bottom-2 opacity-20 lg:hidden"><FlowCircuit id={`auth-mobile-${variant}`} className="w-full" /></div>
 
-        <div className="relative z-10 w-full max-w-[560px]">
-          <div className="mb-8 flex items-center justify-between gap-2 lg:hidden"><Link href="/"><PathlineLogo /></Link><LanguageSwitcher compact /><span className="hidden items-center gap-2 rounded-full border border-[#071A2D]/8 bg-white/75 px-3 py-2 text-[9px] font-semibold text-[#087F62] shadow-sm min-[380px]:inline-flex"><ShieldCheck className="h-3.5 w-3.5" />{t("Acceso protegido")}</span></div>
+        <div className="relative z-10 min-w-0 w-full max-w-[560px]">
+          <div className="mb-8 flex items-center justify-between gap-2 lg:hidden"><Link href="/"><PathlineLogo /></Link><LanguageSwitcher compact /><span className="hidden items-center gap-2 rounded-full border border-[#071A2D]/8 bg-white/75 px-3 py-2 text-[9px] font-semibold text-[#087F62] shadow-sm sm:inline-flex"><ShieldCheck className="h-3.5 w-3.5" />{t("Acceso protegido")}</span></div>
           {children}
           <Link href="/" className="mx-auto mt-6 flex w-fit items-center gap-2 text-xs font-medium text-[#071A2D]/48 transition-colors hover:text-[#071A2D]"><ArrowLeft className="h-4 w-4" />{t("Volver al inicio")}</Link>
         </div>
