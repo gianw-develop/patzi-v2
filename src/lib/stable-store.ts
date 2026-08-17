@@ -260,7 +260,7 @@ interface StableState {
   setStableEligible: (userId: string, eligible: boolean) => Promise<void>;
   addSender: (input: StableSenderInput) => Promise<StableSender>;
   updateSender: (senderId: string, input: StableSenderInput & { active?: boolean }) => Promise<void>;
-  addOperation: (input: { usdAmount: number; asset: StableAsset; walletAddress: string; paymentRail: StablePaymentRail; senderId: string; senderAccountConfirmed: boolean }) => Promise<StableOperation>;
+  addOperation: (input: { usdAmount: number; asset: StableAsset; walletAddress: string; paymentRail: StablePaymentRail; senderId: string; senderAccountConfirmed: boolean; accountId: string }) => Promise<StableOperation>;
   attachSender: (operationId: string, senderId: string, senderAccountConfirmed: boolean) => Promise<StableOperation>;
   uploadProof: (operationId: string, file: File) => Promise<void>;
   uploadOperationDocument: (operation: StableOperation, type: StableDocumentType, file: File) => Promise<void>;
@@ -519,7 +519,7 @@ export const useStableStore = create<StableState>((set, get) => ({
     await get().load("user");
   },
 
-  addOperation: async ({ usdAmount, asset, walletAddress, paymentRail, senderId, senderAccountConfirmed }) => {
+  addOperation: async ({ usdAmount, asset, walletAddress, paymentRail, senderId, senderAccountConfirmed, accountId }) => {
     const { supabase } = await currentUser();
     const { data, error } = await supabase.rpc("create_stable_operation", {
       p_usd_amount: usdAmount,
@@ -528,6 +528,7 @@ export const useStableStore = create<StableState>((set, get) => ({
       p_payment_rail: paymentRail,
       p_sender_id: senderId,
       p_sender_account_confirmed: senderAccountConfirmed,
+      p_receiving_account_id: accountId,
     });
 
     if (error || !data) throw error ?? new Error("No se pudo crear la operación.");

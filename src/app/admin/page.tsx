@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle, ArrowUpRight, Check, CheckCircle2, Clock3, Copy,
+  AlertTriangle, ArrowUpRight, CheckCircle2, Clock3, Copy,
   ClipboardCheck, ExternalLink, FileCheck2, FileText, Filter, Landmark, LoaderCircle, Search, Trash2, WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -16,19 +16,10 @@ import { AssetChip, AssetMark, FlagMark, FlowCircuit } from "@/components/brand/
 import { downloadProof, formatUsd, shortWallet, STABLE_STATUS, type StableOperation, type StableStatus, useStableStore } from "@/lib/stable-store";
 
 const verifiedStatuses: StableStatus[] = ["payment_received", "preparing", "completed"];
-type OperationSort = "activity_desc" | "proof_desc" | "created_desc" | "created_asc";
 
 function StatusBadge({ status }: { status: StableStatus }) {
   const info = STABLE_STATUS[status];
   return <span className={`status-pill status-${info.tone}`}>{info.label}</span>;
-}
-
-function formatElapsed(createdAt: string) {
-  const minutes = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000));
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} h`;
-  return `${Math.floor(hours / 24)} d`;
 }
 
 function formatExactDate(value: string) {
@@ -49,24 +40,20 @@ export default function AdminPage() {
   const [search, setSearch] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("search") ?? "");
   const [statusFilter, setStatusFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
-  const [riskFilter, setRiskFilter] = useState("all");
-  const [sortMode, setSortMode] = useState<OperationSort>("proof_desc");
   const [actualReceived, setActualReceived] = useState("");
   const [reconciliationEditorOpen, setReconciliationEditorOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [copiedData, setCopiedData] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [decision, setDecision] = useState<{ operationId: string; type: "approve" | "reject" } | null>(null);
+  const [decisionAmount, setDecisionAmount] = useState("");
   const selected = operations.find((item) => item.id === selectedId) ?? operations[0];
-  const proofValid = Boolean(selected?.proof);
-  const paymentMatched = Boolean(selected?.bankReceivedAmount != null && verifiedStatuses.includes(selected.status));
-  const walletValid = Boolean(selected && /^0x[a-fA-F0-9]{40}$/.test(selected.walletAddress));
   const selectedEligible = Boolean(selected?.customerStableEligible);
   const selectedKycVerified = selected?.customerKycStatus === "approved";
   const senderIdentityValid = Boolean(selected?.senderLegalName && selected.senderEmail && selected.senderPhone);
-  const checklistComplete = selectedEligible && selectedKycVerified && senderIdentityValid && proofValid && walletValid;
   const canReassignAccount = Boolean(selected && ["waiting_payment", "correction_requested"].includes(selected.status));
-  const canEditReconciliation = Boolean(selected && proofValid && ["proof_submitted", "verifying", "payment_received", "correction_requested"].includes(selected.status));
+  const canEditReconciliation = Boolean(selected && selected.proof && ["proof_submitted", "verifying", "payment_received", "correction_requested"].includes(selected.status));
   const compatibleAccounts = selected ? accounts.filter((item) => {
     const supportsRail = selected.paymentRail === "ACH" ? item.achEnabled : item.wireEnabled;
     return supportsRail && item.active && (item.capacityAvailable || item.id === selected.accountId);
@@ -83,45 +70,20 @@ export default function AdminPage() {
   const previewBankFee = selected ? Math.max(0, selected.usdAmount - previewReceived) : 0;
   const previewPatziFee = Math.round(previewReceived * 10) / 100;
   const previewDelivery = Math.round(previewReceived * 90) / 100;
-  const uploadedPayments = operations
-    .filter((item) => item.proof)
-    .sort((a, b) => {
-      const proofDifference = new Date(a.proof!.uploadedAt).getTime() - new Date(b.proof!.uploadedAt).getTime();
-      return proofDifference || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    });
-  const uploadSequence = (operation: StableOperation) => {
-    if (!operation.proof) return { position: null, label: "Sin comprobante cargado", tone: "waiting" as const };
-    const index = uploadedPayments.findIndex((item) => item.id === operation.id);
-    const position = index + 1;
-    const total = uploadedPayments.length;
-    if (total === 1) return { position, label: "Único pago cargado", tone: "newest" as const };
-    if (position === total) return { position, label: "Más reciente · cargado último", tone: "newest" as const };
-    if (position === 1) return { position, label: "Más antiguo · cargado primero", tone: "oldest" as const };
-    return { position, label: `Carga ${position} de ${total}`, tone: "middle" as const };
-  };
-  const sortDescription: Record<OperationSort, string> = {
-    activity_desc: "Último movimiento arriba",
-    proof_desc: "Más reciente arriba · más antiguo abajo",
-    created_desc: "Operación más reciente arriba",
-    created_asc: "Operación más antigua arriba",
-  };
   const filteredOperations = operations.filter((item) => {
     const needle = search.trim().toLowerCase();
     const matchesSearch = !needle || [item.reference, item.customerName, item.customerEmail, item.senderLegalName, item.walletAddress].some((value) => value?.toLowerCase().includes(needle));
     const matchesStatus = statusFilter === "all" || item.status === statusFilter;
     const matchesAccount = accountFilter === "all" || item.accountId === accountFilter;
-    const matchesRisk = riskFilter === "all" || item.risk === riskFilter;
-    return matchesSearch && matchesStatus && matchesAccount && matchesRisk;
+    return matchesSearch && matchesStatus && matchesAccount;
   }).sort((a, b) => {
-    if (sortMode === "created_asc") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    if (sortMode === "created_desc") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    if (sortMode === "proof_desc") {
-      const proofA = a.proof ? new Date(a.proof.uploadedAt).getTime() : -1;
-      const proofB = b.proof ? new Date(b.proof.uploadedAt).getTime() : -1;
-      return proofB - proofA || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }
-    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    const proofA = a.proof ? new Date(a.proof.uploadedAt).getTime() : -1;
+    const proofB = b.proof ? new Date(b.proof.uploadedAt).getTime() : -1;
+    return proofB - proofA || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
+  const decisionOperation = decision ? operations.find((item) => item.id === decision.operationId) : undefined;
+  const parsedDecisionAmount = Number(decisionAmount);
+  const decisionAmountValid = Boolean(decisionOperation && Number.isFinite(parsedDecisionAmount) && parsedDecisionAmount > 0 && parsedDecisionAmount <= decisionOperation.usdAmount);
 
   useEffect(() => {
     void load("admin");
@@ -173,17 +135,31 @@ export default function AdminPage() {
     }
   };
 
-  const nextAction = !selected
-    ? null
-    : ["proof_submitted", "verifying"].includes(selected.status) || (selected.status === "payment_received" && selected.bankReceivedAmount == null)
-      ? { label: "Conciliar ingreso", busyLabel: "Abriendo…", action: () => setReconciliationEditorOpen(true), requiresAmount: false, requiresMatched: false }
-      : selected.status === "payment_received"
-        ? { label: `Preparar ${selected.asset}`, busyLabel: "Actualizando…", action: () => void performStatus("preparing", `Preparando ${selected.asset}`), requiresAmount: false, requiresMatched: true }
-        : null;
 
-  const requestCorrection = async () => {
-    if (!selected || actionBusy) return;
-    await performStatus("correction_requested", "Corrección solicitada", "El comprobante no coincide con el ingreso bancario. Reemplázalo por el PDF correcto.");
+  const openDecision = (operation: StableOperation, type: "approve" | "reject") => {
+    setSelectedId(operation.id);
+    setDecisionAmount(String(operation.bankReceivedAmount ?? operation.usdAmount));
+    setDecision({ operationId: operation.id, type });
+  };
+
+  const confirmDecision = async () => {
+    if (!decisionOperation || !decision || actionBusy) return;
+    setActionBusy(`decision:${decisionOperation.id}`);
+    try {
+      if (decision.type === "approve") {
+        if (!decisionAmountValid) throw new Error(`El monto recibido debe ser mayor a $0 y no superar ${formatUsd(decisionOperation.usdAmount)}.`);
+        await reconcileOperation(decisionOperation.id, parsedDecisionAmount);
+        toast.success(`Pago aprobado: ${formatUsd(parsedDecisionAmount)} recibidos`);
+      } else {
+        await updateStatus(decisionOperation.id, "correction_requested", "Corrección solicitada", undefined, "El comprobante no coincide con el ingreso bancario. Reemplázalo por el PDF correcto.");
+        toast.success("Pago no aprobado. Se solicitó una corrección al cliente.");
+      }
+      setDecision(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo procesar la decisión.");
+    } finally {
+      setActionBusy(null);
+    }
   };
 
   const openProof = async () => {
@@ -297,7 +273,7 @@ export default function AdminPage() {
         <div className="mx-auto w-full max-w-[1920px] space-y-[clamp(1rem,1vw,1.75rem)]">
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
             <div><p className="premium-kicker text-[clamp(.7rem,.65vw,.85rem)] text-[#087F62]">Operación en vivo</p><h1 className="mt-1 text-[clamp(1.65rem,1.65vw,2.35rem)] font-semibold tracking-[-.035em]">Control de fondos y entregas</h1><p className="mt-1 text-[clamp(.75rem,.7vw,.9rem)] text-[#071A2D]/46">Actualizado ahora · todos los importes en USD</p></div>
-            <div className="flex gap-2"><label className="relative flex-1 xl:w-[clamp(360px,24vw,520px)]"><Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#071A2D]/35"/><input value={search} onChange={(event)=>setSearch(event.target.value)} className="h-12 w-full rounded-2xl border border-[#071A2D]/9 bg-white pl-12 pr-4 text-sm shadow-sm outline-none focus:border-[#2775CA] 2xl:h-14" placeholder="Referencia, cliente o wallet"/></label><button type="button" onClick={()=>{setSearch("");setStatusFilter("all");setAccountFilter("all");setRiskFilter("all");setSortMode("activity_desc")}} className="grid h-12 w-12 place-items-center rounded-2xl border border-[#071A2D]/9 bg-white shadow-sm 2xl:h-14 2xl:w-14" aria-label="Limpiar filtros" title="Limpiar filtros"><Filter className="h-5 w-5"/></button></div>
+            <div className="flex gap-2"><label className="relative flex-1 xl:w-[clamp(360px,24vw,520px)]"><Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#071A2D]/35"/><input value={search} onChange={(event)=>setSearch(event.target.value)} className="h-12 w-full rounded-2xl border border-[#071A2D]/9 bg-white pl-12 pr-4 text-sm shadow-sm outline-none focus:border-[#2775CA] 2xl:h-14" placeholder="Referencia, cliente o wallet"/></label><button type="button" onClick={()=>{setSearch("");setStatusFilter("all");setAccountFilter("all")}} className="grid h-12 w-12 place-items-center rounded-2xl border border-[#071A2D]/9 bg-white shadow-sm 2xl:h-14 2xl:w-14" aria-label="Limpiar filtros" title="Limpiar filtros"><Filter className="h-5 w-5"/></button></div>
           </div>
 
           <section className="premium-card overflow-hidden rounded-[clamp(1.5rem,1.5vw,2rem)] p-[clamp(1rem,1.4vw,1.75rem)]">
@@ -324,9 +300,9 @@ export default function AdminPage() {
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_500px]">
             <main className="min-w-0 space-y-4">
               <section className="premium-card overflow-hidden rounded-[1.6rem]">
-                <div className="relative z-10 flex flex-col justify-between gap-3 border-b border-[#071A2D]/8 p-5"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="text-base font-semibold">Cola prioritaria</h2><p className="mt-1 flex items-center gap-2 text-xs font-medium text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#4DE2B5]"/>{sortDescription[sortMode]}</p></div><select aria-label="Ordenar operaciones" value={sortMode} onChange={(event)=>setSortMode(event.target.value as OperationSort)} className="h-10 rounded-xl border border-[#071A2D] bg-[#071A2D] px-3 text-xs font-semibold text-white shadow-[0_8px_20px_rgba(7,26,45,.16)] outline-none transition-transform active:scale-[.98]"><option value="proof_desc">Más reciente arriba</option><option value="activity_desc">Última actividad</option><option value="created_desc">Operación más reciente</option><option value="created_asc">Operación más antigua</option></select></div><div className="flex flex-wrap gap-2"><select aria-label="Filtrar por estado" value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los estados</option>{Object.entries(STABLE_STATUS).map(([value,info])=><option key={value} value={value}>{info.label}</option>)}</select><select aria-label="Filtrar por cuenta" value={accountFilter} onChange={(event)=>setAccountFilter(event.target.value)} className="max-w-[190px] rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todas las cuentas</option>{accounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select><select aria-label="Filtrar por riesgo" value={riskFilter} onChange={(event)=>setRiskFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los riesgos</option><option value="low">Bajo</option><option value="medium">Medio</option><option value="high">Alto</option></select></div></div>
-                <div className="relative z-10 overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Referencia / orden de carga","Usuario Patzi / Remitente","Servicio","Enviado / Banco","Entrega","Cuenta","Fechas exactas","Estado","Riesgo"].map((h)=><th key={h} className="px-3 py-3 font-semibold">{h}</th>)}</tr></thead><tbody>{filteredOperations.map((item)=>{const upload=uploadSequence(item);return <tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-all duration-200 active:scale-[.998] ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}><td className="px-3 py-4 font-semibold"><span>{item.reference}</span><span className={`mt-1.5 block w-fit rounded-full px-2 py-1 text-[9px] font-semibold ${upload.tone==="newest"?"bg-[#DDF8EE] text-[#087F62] ring-1 ring-[#0AA883]/20":upload.tone==="oldest"?"bg-[#EAF1FF] text-[#356DE5]":"bg-[#F0F3F2] text-[#071A2D]/50"}`}>{upload.label}</span>{upload.position&&item.proof?<p className="mt-1.5 whitespace-nowrap text-[9px] font-medium text-[#071A2D]/40">Cargado · {formatExactDate(item.proof.uploadedAt)}</p>:null}</td><td className="px-3 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[180px] truncate text-11px text-[#087F62]">{item.senderLegalName ?? "Sin remitente registrado"}</p></td><td className="px-3 py-4"><span className="flex items-center gap-2 font-medium"><AssetMark asset={item.asset} className="h-5 w-5"/>Stable</span></td><td className="px-3 py-4"><p className="font-medium">{formatUsd(item.usdAmount)} enviado</p><p className={`mt-1 text-11px ${item.bankReceivedAmount == null?"text-[#A46600]":"font-semibold text-[#087F62]"}`}>{item.bankReceivedAmount == null?"Banco pendiente":`${formatUsd(item.bankReceivedAmount)} recibido`}</p></td><td className="px-3 py-4 font-semibold">{item.deliveryAmount.toLocaleString()} {item.asset}</td><td className="px-3 py-4">{accounts.find((a)=>a.id===item.accountId)?.label}</td><td className="px-3 py-4"><p className="whitespace-nowrap text-xs font-semibold">Creado · {formatExactDate(item.createdAt)}</p><p className="mt-1 whitespace-nowrap text-10px text-[#071A2D]/42">Hace {formatElapsed(item.createdAt)}</p>{item.proof?<p className="mt-1.5 whitespace-nowrap text-10px font-semibold text-[#356DE5]">PDF · {formatExactDate(item.proof.uploadedAt)}</p>:<p className="mt-1.5 text-10px text-[#A46600]">PDF aún no cargado</p>}</td><td className="px-3 py-4"><StatusBadge status={item.status}/></td><td className="px-3 py-4"><span className={`rounded-full px-2 py-1 text-11px font-semibold ${item.risk==="medium"?"bg-[#FFF4D8] text-[#A46600]":"bg-[#E7FAF3] text-[#087F62]"}`}>{item.risk==="medium"?"Medio":"Bajo"}</span></td></tr>})}</tbody></table></div>
-                <div className="relative z-10 flex flex-col justify-between gap-1 border-t border-[#071A2D]/8 p-3 text-xs text-[#071A2D]/40 sm:flex-row"><span>{uploadedPayments.length} pagos con comprobante · ordenados del más reciente al más antiguo</span><span className="font-medium text-[#087F62]">{sortDescription[sortMode]}</span></div>
+                <div className="relative z-10 flex flex-col justify-between gap-3 border-b border-[#071A2D]/8 p-5 sm:flex-row sm:items-center"><div><h2 className="text-base font-semibold">Pagos Stable</h2><p className="mt-1 flex items-center gap-2 text-xs font-medium text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#4DE2B5]"/>Más recientes arriba</p></div><div className="flex flex-wrap gap-2"><select aria-label="Filtrar por estado" value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los estados</option>{Object.entries(STABLE_STATUS).map(([value,info])=><option key={value} value={value}>{info.label}</option>)}</select><select aria-label="Filtrar por cuenta" value={accountFilter} onChange={(event)=>setAccountFilter(event.target.value)} className="max-w-[220px] rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todas las cuentas</option>{accounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select></div></div>
+                <div className="relative z-10 overflow-x-auto"><table className="w-full min-w-[860px] text-left text-sm"><thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Fecha","Referencia","Usuario Patzi / Remitente","Cuenta","Estado","Decisión"].map((heading)=><th key={heading} className="px-4 py-3 font-semibold">{heading}</th>)}</tr></thead><tbody>{filteredOperations.map((item)=>{const account=accounts.find((entry)=>entry.id===item.accountId);const canReview=Boolean(item.proof&&["proof_submitted","verifying"].includes(item.status));const approved=verifiedStatuses.includes(item.status);return <tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-colors ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}><td className="whitespace-nowrap px-4 py-4"><p className="text-xs font-semibold">{formatExactDate(item.proof?.uploadedAt??item.createdAt)}</p><p className="mt-1 text-10px text-[#071A2D]/40">{item.proof?"Comprobante cargado":"Operación creada"}</p></td><td className="px-4 py-4 font-semibold">{item.reference}</td><td className="px-4 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[190px] truncate text-11px text-[#087F62]">{item.senderLegalName??"Sin remitente"}</p></td><td className="px-4 py-4"><p className="max-w-[190px] truncate font-medium">{account?.holder??"Cuenta no disponible"}</p><p className="mt-1 text-10px text-[#071A2D]/42">{account?.label??"—"} · {item.paymentRail}</p></td><td className="px-4 py-4"><StatusBadge status={item.status}/></td><td className="px-4 py-4" onClick={(event)=>event.stopPropagation()}>{canReview?<div className="flex items-center gap-2"><Button onClick={()=>openDecision(item,"approve")} disabled={Boolean(actionBusy)} className="h-9 bg-[#071A2D] px-3 text-11px font-semibold">Aprobar</Button><Button onClick={()=>openDecision(item,"reject")} disabled={Boolean(actionBusy)} variant="outline" className="h-9 border-[#D9563E]/20 px-3 text-11px font-semibold text-[#D9563E]">No aprobar</Button></div>:approved?<span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#087F62]"><CheckCircle2 className="h-4 w-4"/>Aprobado</span>:item.status==="correction_requested"?<span className="text-xs font-semibold text-[#D9563E]">No aprobado</span>:<button type="button" onClick={()=>setSelectedId(item.id)} className="text-xs font-semibold text-[#071A2D]/45">Ver detalle</button>}</td></tr>})}</tbody></table></div>
+                <div className="relative z-10 border-t border-[#071A2D]/8 p-3 text-xs text-[#071A2D]/40">{filteredOperations.length} operaciones · ordenadas por comprobante más reciente</div>
               </section>
 
               <section className="premium-card rounded-[1.6rem] p-5">
@@ -358,18 +334,25 @@ export default function AdminPage() {
                 <div className="rounded-2xl border border-[#071A2D]/8 p-3"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-semibold">Wallet</p><AssetChip asset="ETH"/></div><p className="truncate text-sm font-semibold">{shortWallet(selected.walletAddress)}</p><button onClick={()=>{navigator.clipboard.writeText(selected.walletAddress);toast.success("Wallet copiada")}} className="mt-3 flex items-center gap-2 text-xs font-medium text-[#087F62]"><Copy className="h-3.5 w-3.5"/>Copiar dirección</button></div>
               </div>
 
-              <div className="relative z-10 mt-3 rounded-2xl border border-[#071A2D]/8 p-3"><div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-xs font-semibold">Conciliación bancaria</p><p className="mt-1 text-11px text-[#071A2D]/40">Cuenta asignada al ingreso</p></div><span className="rounded-full bg-[#E7FAF3] px-2.5 py-1 text-11px font-semibold text-[#087F62]">{selected.paymentRail}</span></div><label className="mb-3 block text-11px font-medium text-[#071A2D]/50">Cuenta receptora<select value={selected.accountId} onChange={(event)=>void changeAccount(event.target.value)} disabled={!canReassignAccount||actionBusy==="account"} className="mt-1.5 h-10 w-full rounded-xl border border-[#071A2D]/10 bg-[#F7F9F7] px-3 text-xs font-semibold outline-none focus:border-[#2775CA] disabled:cursor-not-allowed disabled:opacity-60">{compatibleAccounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select></label>{selected.bankReceivedAmount==null?<div className="flex items-center gap-2 rounded-xl bg-[#FFF4D8] p-2 text-11px text-[#A46600]"><AlertTriangle className="h-3.5 w-3.5"/>Falta registrar el monto real recibido.</div>:!paymentMatched?<div className="flex items-center gap-2 rounded-xl bg-[#EEF4FF] p-2 text-11px text-[#356DE5]"><CheckCircle2 className="h-3.5 w-3.5"/>Monto real guardado; falta validar el comprobante.</div>:<div className="flex items-center gap-2 rounded-xl bg-[#E7FAF3] p-2 text-11px text-[#087F62]"><CheckCircle2 className="h-3.5 w-3.5"/>Ingreso bancario conciliado.</div>}</div>
-              <div className="relative z-10 mt-3 grid gap-3 rounded-2xl border border-[#071A2D]/8 p-3 sm:grid-cols-[1fr_190px]"><div><p className="mb-3 text-xs font-semibold">Lista de verificación</p>{[["Usuario Patzi apto",selectedEligible&&selectedKycVerified],["Remitente identificado",senderIdentityValid],["Ingreso conciliado",paymentMatched],["Comprobante válido",proofValid],["Wallet confirmada",walletValid]].map(([label,done])=><div key={String(label)} className="mb-2 flex items-center justify-between text-11px"><span className="flex items-center gap-2"><span className={`grid h-4 w-4 place-items-center rounded-full border ${done?"border-[#0AA883] bg-[#0AA883] text-white":"border-[#071A2D]/15"}`}>{done&&<Check className="h-2.5 w-2.5"/>}</span>{label as string}</span><span className={done?"text-[#087F62]":"text-[#071A2D]/30"}>{done?"Listo":"Pendiente"}</span></div>)}</div><div className="space-y-2">{nextAction&&<Button onClick={nextAction.action} disabled={!checklistComplete||(nextAction.requiresAmount&&!actualReceivedValid)||(nextAction.requiresMatched&&!paymentMatched)||Boolean(actionBusy)} className="h-10 w-full bg-[#071A2D] text-xs font-semibold transition-all duration-200 active:scale-[.98]">{actionBusy?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:null}{actionBusy?nextAction.busyLabel:nextAction.label}</Button>}<Button onClick={()=>void requestCorrection()} disabled={selected.status==="completed"||selected.status==="blocked"||Boolean(actionBusy)} variant="outline" className="h-10 w-full border-[#071A2D]/12 bg-white text-xs font-semibold text-[#D9563E] transition-all active:scale-[.98] hover:bg-[#FFF0EC]">{actionBusy==="status:correction_requested"?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:null}{actionBusy==="status:correction_requested"?"Solicitando…":"Solicitar corrección"}</Button></div></div>
+              <div className="relative z-10 mt-3 rounded-2xl border border-[#071A2D]/8 p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold">Cuenta receptora</p><p className="mt-1 text-11px text-[#071A2D]/42">{accounts.find((item)=>item.id===selected.accountId)?.holder} · {accounts.find((item)=>item.id===selected.accountId)?.label}</p></div><span className="rounded-full bg-[#E7FAF3] px-2.5 py-1 text-11px font-semibold text-[#087F62]">{selected.paymentRail}</span></div>{canReassignAccount&&<select aria-label="Cambiar cuenta receptora" value={selected.accountId} onChange={(event)=>void changeAccount(event.target.value)} disabled={actionBusy==="account"} className="mt-3 h-10 w-full rounded-xl border border-[#071A2D]/10 bg-[#F7F9F7] px-3 text-xs font-semibold outline-none focus:border-[#2775CA]">{compatibleAccounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select>}{selected.status==="payment_received"&&<Button onClick={()=>void performStatus("preparing",`Preparando ${selected.asset}`)} disabled={Boolean(actionBusy)||selected.bankReceivedAmount==null} className="mt-3 h-10 w-full bg-[#071A2D] text-xs font-semibold">{actionBusy?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:null}Preparar {selected.asset}</Button>}</div>
 
               {(selected.status==="preparing"||selected.status==="completed")&&<div className="relative z-10 mt-3 rounded-2xl border border-[#0AA883]/18 bg-[#EAF8F3] p-3"><div className="flex items-center gap-2"><AssetMark asset={selected.asset} className="h-6 w-6"/><p className="text-xs font-semibold">Registrar envío por Ethereum</p></div><div className="mt-3 flex gap-2"><input value={selected.txHash||txHash} onChange={(e)=>setTxHash(e.target.value.trim())} disabled={selected.status==="completed"||actionBusy==="complete"} placeholder="0x... hash de 66 caracteres" className="h-10 min-w-0 flex-1 rounded-xl border border-[#071A2D]/9 bg-white px-3 font-mono text-11px outline-none"/><Button onClick={complete} disabled={selected.status==="completed"||actionBusy==="complete"} className="h-10 bg-[#0AA883] text-xs font-semibold text-white transition-all active:scale-[.98]">{actionBusy==="complete"?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:null}{actionBusy==="complete"?"Registrando…":"Registrar"}</Button></div></div>}
 
               <div className="relative z-10 mt-4 flex gap-5 border-b border-[#071A2D]/8 text-xs">{[["detail","Detalle"],["files","Archivos"],["history","Historial"]].map(([id,label])=><button key={id} onClick={()=>setTab(id as typeof tab)} className={`pb-2 font-semibold ${tab===id?"border-b-2 border-[#0AA883] text-[#087F62]":"text-[#071A2D]/38"}`}>{label}</button>)}</div>
-              <div className="relative z-10 mt-3">{tab==="history"?<div className="max-h-40 space-y-2 overflow-y-auto">{selected.history.slice().reverse().map((item)=><div key={item.id} className="grid grid-cols-[90px_1fr_70px] gap-2 rounded-xl bg-[#F6F8F6] p-2 text-10px"><span className="text-[#071A2D]/38">{new Date(item.createdAt).toLocaleString("es-ES",{dateStyle:"short",timeStyle:"short"})}</span><span className="font-semibold">{item.label}</span><span className="text-right text-[#087F62]">{item.actor}</span></div>)}</div>:tab==="files"?<OperationDocuments operation={selected} admin />:<div className="grid grid-cols-2 gap-2 text-11px"><div className="rounded-xl bg-[#F6F8F6] p-3"><span className="text-[#071A2D]/38">Creada</span><p className="mt-1 font-semibold">{new Date(selected.createdAt).toLocaleString("es-ES")}</p></div><div className="rounded-xl bg-[#F6F8F6] p-3"><span className="text-[#071A2D]/38">Riesgo</span><p className="mt-1 font-semibold capitalize">{selected.risk}</p></div></div>}</div>
+              <div className="relative z-10 mt-3">{tab==="history"?<div className="max-h-40 space-y-2 overflow-y-auto">{selected.history.slice().reverse().map((item)=><div key={item.id} className="grid grid-cols-[90px_1fr_70px] gap-2 rounded-xl bg-[#F6F8F6] p-2 text-10px"><span className="text-[#071A2D]/38">{new Date(item.createdAt).toLocaleString("es-ES",{dateStyle:"short",timeStyle:"short"})}</span><span className="font-semibold">{item.label}</span><span className="text-right text-[#087F62]">{item.actor}</span></div>)}</div>:tab==="files"?<OperationDocuments operation={selected} admin />:<div className="grid grid-cols-2 gap-2 text-11px"><div className="rounded-xl bg-[#F6F8F6] p-3"><span className="text-[#071A2D]/38">Creada</span><p className="mt-1 font-semibold">{new Date(selected.createdAt).toLocaleString("es-ES")}</p></div><div className="rounded-xl bg-[#F6F8F6] p-3"><span className="text-[#071A2D]/38">Estado</span><div className="mt-1"><StatusBadge status={selected.status}/></div></div></div>}</div>
               <div className="relative z-10 mt-4 border-t border-[#D9563E]/15 pt-4"><button type="button" onClick={()=>setDeleteOpen(true)} className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D9563E]/20 bg-[#FFF8F6] text-xs font-semibold text-[#D9563E] transition-all duration-200 hover:bg-[#FFF0EC] active:scale-[.98]"><Trash2 className="h-4 w-4"/>Eliminar operación por completo</button></div>
             </aside>}
           </div>
         </div>
       </div>
+      <Dialog open={Boolean(decision)} onOpenChange={(open)=>{if(!open&&!actionBusy)setDecision(null)}}>
+        <DialogContent className="rounded-3xl bg-white sm:max-w-md">
+          <DialogHeader><DialogTitle>{decision?.type==="approve"?"Aprobar pago":"No aprobar pago"}</DialogTitle><DialogDescription>{decision?.type==="approve"?"Confirma cuánto llegó realmente al banco. La comisión Patzi se calcula sobre este monto.":"El cliente podrá corregir el comprobante y volver a enviarlo."}</DialogDescription></DialogHeader>
+          {decisionOperation&&decision?.type==="approve"&&<div className="space-y-3"><div className="rounded-2xl bg-[#F3F7F4] p-4 text-sm"><div className="flex justify-between"><span>Cliente envió</span><b>{formatUsd(decisionOperation.usdAmount)}</b></div><label className="mt-3 block text-xs font-semibold">Monto real recibido en banco<input autoFocus type="number" min="0.01" max={decisionOperation.usdAmount} step="0.01" value={decisionAmount} onChange={(event)=>setDecisionAmount(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#356DE5]/25 bg-white px-3 text-base font-semibold outline-none focus:border-[#356DE5]"/></label></div>{decisionAmountValid&&<div className="grid grid-cols-3 gap-2 text-center text-11px"><div className="rounded-xl bg-[#FFF4D8] p-2"><span>Fee banco</span><b className="mt-1 block">{formatUsd(decisionOperation.usdAmount-parsedDecisionAmount)}</b></div><div className="rounded-xl bg-[#FFF0EC] p-2"><span>Patzi 10%</span><b className="mt-1 block">{formatUsd(parsedDecisionAmount*.1)}</b></div><div className="rounded-xl bg-[#E7FAF3] p-2"><span>Cliente recibe</span><b className="mt-1 block">{(parsedDecisionAmount*.9).toLocaleString()} {decisionOperation.asset}</b></div></div>}</div>}
+          {decisionOperation&&decision?.type==="reject"&&<div className="rounded-2xl bg-[#FFF4F0] p-4 text-sm"><b>{decisionOperation.reference}</b><p className="mt-1 text-[#071A2D]/55">{decisionOperation.senderLegalName}</p></div>}
+          <DialogFooter><Button variant="outline" onClick={()=>setDecision(null)} disabled={Boolean(actionBusy)}>Cancelar</Button><Button onClick={()=>void confirmDecision()} disabled={Boolean(actionBusy)||(decision?.type==="approve"&&!decisionAmountValid)} className={decision?.type==="reject"?"bg-[#D9563E] text-white":"bg-[#071A2D] text-white"}>{actionBusy?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:null}{decision?.type==="approve"?"Confirmar aprobación":"Solicitar corrección"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={deleteOpen} onOpenChange={(open)=>{if(actionBusy!=="delete"){setDeleteOpen(open);if(!open)setDeleteConfirm("")}}}>
         <DialogContent className="rounded-3xl border-[#D9563E]/20 bg-white sm:max-w-md">
           <DialogHeader><DialogTitle className="flex items-center gap-2 text-[#D9563E]"><Trash2 className="h-5 w-5"/>Eliminar operación permanentemente</DialogTitle><DialogDescription>Se borrarán la operación, su historial, comprobante, factura y contrato. Esta acción no se puede deshacer.</DialogDescription></DialogHeader>

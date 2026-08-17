@@ -26,6 +26,7 @@ interface StableDraft {
   amount: string;
   asset: StableAsset;
   paymentRail: StablePaymentRail;
+  accountId: string;
   wallet: string;
   senderId: string;
   operationId?: string;
@@ -46,6 +47,7 @@ export default function StableOperationFlow() {
   const [amount, setAmount] = useState("1000");
   const [asset, setAsset] = useState<StableAsset>("USDT");
   const [paymentRail, setPaymentRail] = useState<StablePaymentRail>("ACH");
+  const [accountId, setAccountId] = useState("");
   const [wallet, setWallet] = useState("");
   const [senderId, setSenderId] = useState("");
   const [showNewSender, setShowNewSender] = useState(false);
@@ -58,8 +60,12 @@ export default function StableOperationFlow() {
   const [draftRestored, setDraftRestored] = useState(false);
 
   const parsedAmount = Number(amount) || 0;
-  const selectedCapacity = capacity.find((item) => item.paymentRail === paymentRail);
-  const capacityAvailable = Boolean(selectedCapacity?.available);
+  const compatibleAccounts = useMemo(() => accounts.filter((account) => {
+    const supportsRail = paymentRail === "ACH" ? account.achEnabled : account.wireEnabled;
+    return account.active && account.capacityAvailable && supportsRail && account.weeklyAvailable >= parsedAmount;
+  }).sort((left, right) => left.utilizationPercent - right.utilizationPercent), [accounts, parsedAmount, paymentRail]);
+  const selectedAccount = compatibleAccounts.find((account) => account.id === accountId) ?? compatibleAccounts[0];
+  const capacityAvailable = compatibleAccounts.length > 0;
   const activeSenders = senders.filter((sender) => sender.active);
   const selectedSender = activeSenders.find((sender) => sender.id === senderId);
   const assignedAccount = operation ? accounts.find((account) => account.id === operation.accountId) : undefined;
@@ -67,6 +73,14 @@ export default function StableOperationFlow() {
   const nextReset = nextResetValue ? new Date(nextResetValue) : null;
   const fee = parsedAmount * 0.1;
   const receive = parsedAmount - fee;
+
+  useEffect(() => {
+    if (!compatibleAccounts.length) {
+      if (accountId) setAccountId("");
+      return;
+    }
+    if (!compatibleAccounts.some((account) => account.id === accountId)) setAccountId(compatibleAccounts[0].id);
+  }, [accountId, compatibleAccounts]);
 
   useEffect(() => {
     void load("user");
@@ -87,6 +101,7 @@ export default function StableOperationFlow() {
           if (typeof draft.amount === "string") setAmount(draft.amount);
           if (draft.asset === "USDT" || draft.asset === "USDC") setAsset(draft.asset);
           if (draft.paymentRail === "ACH" || draft.paymentRail === "WIRE") setPaymentRail(draft.paymentRail);
+          if (typeof draft.accountId === "string") setAccountId(draft.accountId);
           if (typeof draft.wallet === "string") setWallet(draft.wallet);
           if (typeof draft.senderId === "string") setSenderId(draft.senderId);
           if (typeof draft.operationId === "string") setDraftOperationId(draft.operationId);
@@ -110,13 +125,14 @@ export default function StableOperationFlow() {
       amount,
       asset,
       paymentRail,
+      accountId: selectedAccount?.id ?? accountId,
       wallet,
       senderId,
       operationId: operation?.id ?? (draftOperationId || undefined),
       updatedAt: new Date().toISOString(),
     };
     try { window.sessionStorage.setItem(draftKeyFor(draftUserId), JSON.stringify(draft)); } catch { /* Storage is optional. */ }
-  }, [amount, asset, draftOperationId, draftReady, draftUserId, operation?.id, paymentRail, senderId, step, wallet]);
+  }, [accountId, amount, asset, draftOperationId, draftReady, draftUserId, operation?.id, paymentRail, selectedAccount?.id, senderId, step, wallet]);
 
   useEffect(() => {
     if (!draftReady || !draftOperationId || operation) return;
@@ -126,6 +142,7 @@ export default function StableOperationFlow() {
       setAmount(String(recovered.usdAmount));
       setAsset(recovered.asset);
       setPaymentRail(recovered.paymentRail);
+      setAccountId(recovered.accountId);
       setWallet(recovered.walletAddress);
       setSenderId(recovered.senderId ?? "");
       setOperation(recovered);
@@ -182,6 +199,7 @@ export default function StableOperationFlow() {
   const createOperation = async () => {
     if (!selectedSender) { toast.error("Selecciona el titular que enviará los USD"); return; }
     if (!senderConfirmed) { toast.error("Confirma que el depósito saldrá de la cuenta del remitente seleccionado"); return; }
+    if (!selectedAccount) { toast.error("Selecciona la cuenta bancaria donde realizarás el depósito"); return; }
     if (!isEthAddress(wallet)) { toast.error("Introduce una wallet Ethereum válida"); return; }
     setSubmitting(true);
     try {
@@ -192,9 +210,10 @@ export default function StableOperationFlow() {
         paymentRail,
         senderId: selectedSender.id,
         senderAccountConfirmed: senderConfirmed,
+        accountId: selectedAccount.id,
       });
       if (draftUserId) {
-        const createdDraft: StableDraft = { step: 3, amount, asset, paymentRail, wallet, senderId: selectedSender.id, operationId: created.id, updatedAt: new Date().toISOString() };
+        const createdDraft: StableDraft = { step: 3, amount, asset, paymentRail, accountId: selectedAccount.id, wallet, senderId: selectedSender.id, operationId: created.id, updatedAt: new Date().toISOString() };
         try { window.sessionStorage.setItem(draftKeyFor(draftUserId), JSON.stringify(createdDraft)); } catch { /* Storage is optional. */ }
       }
       setOperation(created);
@@ -218,6 +237,7 @@ export default function StableOperationFlow() {
     setAmount("1000");
     setAsset("USDT");
     setPaymentRail("ACH");
+    setAccountId("");
     setWallet("");
     setSenderId("");
     setSenderConfirmed(false);
@@ -264,8 +284,14 @@ export default function StableOperationFlow() {
                 <div className="mt-2 flex items-center rounded-2xl border-2 border-[#071A2D]/10 bg-white p-4 focus-within:border-[#4C7DFF]"><span className="text-3xl font-semibold">$</span><input type="number" min="1" value={amount} onChange={(event) => setAmount(event.target.value)} className="min-w-0 flex-1 bg-transparent px-2 text-3xl font-semibold outline-none" /><span className="flex items-center gap-2 text-xs font-semibold"><FlagMark country="US"/>USD</span></div>
                 <p className="mt-3 text-xs text-[#071A2D]/45">Este importe reservará cupo durante 24 horas y será el volumen usado al cargar el comprobante.</p>
                 <label className="mt-6 block text-xs font-semibold uppercase tracking-[.14em] text-[#071A2D]/40">Método de envío</label>
-                <div className="mt-2 grid grid-cols-2 gap-3">{(["ACH", "WIRE"] as StablePaymentRail[]).map((rail) => { const supported = Boolean(capacity.find((item) => item.paymentRail === rail)?.available); return <button key={rail} type="button" disabled={!supported} onClick={() => setPaymentRail(rail)} className={`rounded-xl border-2 p-3 text-left disabled:opacity-35 ${paymentRail === rail ? "border-[#0AA883] bg-[#E7FAF3]" : "border-[#071A2D]/9 bg-white"}`}><b className="text-sm font-semibold">{rail === "ACH" ? "Transferencia ACH" : "Domestic Wire"}</b><p className="mt-1 text-[10px] text-[#071A2D]/42">Routing específico de la cuenta asignada.</p></button>; })}</div>
-                <Button onClick={() => setStep(1)} disabled={parsedAmount <= 0 || !capacityAvailable} className="mt-8 h-12 w-full bg-[#071A2D] text-white">Continuar <ArrowRight className="ml-2 h-4 w-4" /></Button>
+                <div className="mt-2 grid grid-cols-2 gap-3">{(["ACH", "WIRE"] as StablePaymentRail[]).map((rail) => { const supported = Boolean(capacity.find((item) => item.paymentRail === rail)?.available); return <button key={rail} type="button" disabled={!supported} onClick={() => setPaymentRail(rail)} className={`rounded-xl border-2 p-3 text-left disabled:opacity-35 ${paymentRail === rail ? "border-[#0AA883] bg-[#E7FAF3]" : "border-[#071A2D]/9 bg-white"}`}><b className="text-sm font-semibold">{rail === "ACH" ? "Transferencia ACH" : "Domestic Wire"}</b><p className="mt-1 text-[10px] text-[#071A2D]/42">Elige después la cuenta exacta.</p></button>; })}</div>
+                <label className="mt-6 block text-xs font-semibold uppercase tracking-[.14em] text-[#071A2D]/40">Cuenta donde depositarás</label>
+                {selectedAccount ? <div className="mt-2 rounded-2xl border-2 border-[#0AA883]/35 bg-[#E7FAF3]/55 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><Landmark className="h-4 w-4 text-[#087F62]"/><b className="text-sm">{selectedAccount.holder}</b>{selectedAccount.id === compatibleAccounts[0]?.id && <span className="rounded-full bg-white px-2 py-1 text-[9px] font-semibold text-[#087F62]">RECOMENDADA</span>}</div><p className="mt-1 text-xs text-[#071A2D]/55">{selectedAccount.bank} · cuenta terminada en {selectedAccount.accountNumber.slice(-4)}</p></div>
+                  <select aria-label="Cuenta receptora USD" value={selectedAccount.id} onChange={(event) => setAccountId(event.target.value)} className="h-10 min-w-56 rounded-xl border border-[#071A2D]/12 bg-white px-3 text-xs font-semibold outline-none focus:border-[#0AA883]">{compatibleAccounts.map((account) => <option key={account.id} value={account.id}>{account.holder} · {account.bank} · {account.accountNumber.slice(-4)}</option>)}</select></div>
+                  <div className="mt-3 flex items-center justify-between border-t border-[#0AA883]/15 pt-3 text-[10px] text-[#071A2D]/50"><span>Cupo disponible esta semana</span><b className="text-[#087F62]">{formatUsd(selectedAccount.weeklyAvailable)}</b></div>
+                </div> : <div className="mt-2 rounded-xl border border-[#FF765B]/25 bg-[#FF765B]/10 p-4 text-xs text-[#A13E2C]">No hay cuentas {paymentRail} con cupo suficiente para {formatUsd(parsedAmount)}. Prueba otro monto o método.</div>}
+                <Button onClick={() => setStep(1)} disabled={parsedAmount <= 0 || !capacityAvailable || !selectedAccount} className="mt-8 h-12 w-full bg-[#071A2D] text-white">Continuar <ArrowRight className="ml-2 h-4 w-4" /></Button>
               </div>}
 
               {step === 1 && <div>
