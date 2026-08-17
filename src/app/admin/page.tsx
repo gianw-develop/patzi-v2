@@ -16,7 +16,7 @@ import { AssetChip, AssetMark, FlagMark, FlowCircuit } from "@/components/brand/
 import { downloadProof, formatUsd, shortWallet, STABLE_STATUS, type StableOperation, type StableStatus, useStableStore } from "@/lib/stable-store";
 
 const verifiedStatuses: StableStatus[] = ["payment_received", "preparing", "completed"];
-type OperationSort = "activity_desc" | "proof_desc" | "created_desc" | "created_asc";
+type OperationSort = "queue_asc" | "activity_desc" | "proof_desc" | "created_desc" | "created_asc";
 
 function StatusBadge({ status }: { status: StableStatus }) {
   const info = STABLE_STATUS[status];
@@ -41,15 +41,6 @@ function formatExactDate(value: string) {
   }).format(new Date(value)).replace(",", " ·");
 }
 
-function operationDay(value: string) {
-  return new Intl.DateTimeFormat("es-ES", {
-    timeZone: "Europe/Madrid",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(value));
-}
-
 export default function AdminPage() {
   const { operations, accounts, load, setStableEligible, updateStatus, reconcileOperation, setTransactionHash, assignAccount, deleteOperation } = useStableStore();
   const [selectedId, setSelectedId] = useState(operations[0]?.id ?? "");
@@ -59,7 +50,7 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
-  const [sortMode, setSortMode] = useState<OperationSort>("activity_desc");
+  const [sortMode, setSortMode] = useState<OperationSort>("queue_asc");
   const [actualReceived, setActualReceived] = useState("");
   const [reconciliationEditorOpen, setReconciliationEditorOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -92,29 +83,34 @@ export default function AdminPage() {
   const previewBankFee = selected ? Math.max(0, selected.usdAmount - previewReceived) : 0;
   const previewPatziFee = Math.round(previewReceived * 10) / 100;
   const previewDelivery = Math.round(previewReceived * 90) / 100;
-  const chronologicalOperations = [...operations].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  const chronologicalPosition = (operation: StableOperation) => chronologicalOperations.findIndex((item) => item.id === operation.id) + 1;
-  const duplicateSequence = (operation: StableOperation) => {
-    const group = operations
-      .filter((candidate) =>
-        candidate.userId === operation.userId
-        && candidate.senderLegalName === operation.senderLegalName
-        && candidate.usdAmount === operation.usdAmount
-        && candidate.asset === operation.asset
-        && operationDay(candidate.createdAt) === operationDay(operation.createdAt)
-      )
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    if (group.length < 2) return null;
-    const position = group.findIndex((item) => item.id === operation.id) + 1;
-    if (position === 1) return `Primero · 1 de ${group.length}`;
-    if (position === group.length) return `Último · ${position} de ${group.length}`;
-    return `Repetido · ${position} de ${group.length}`;
+  const activeQueueStatuses: StableStatus[] = ["proof_submitted", "verifying", "payment_received", "preparing"];
+  const activeQueueOperations = operations
+    .filter((item) => item.proof && activeQueueStatuses.includes(item.status))
+    .sort((a, b) => {
+      const proofDifference = new Date(a.proof!.uploadedAt).getTime() - new Date(b.proof!.uploadedAt).getTime();
+      return proofDifference || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  const queuePriority = (operation: StableOperation) => {
+    const index = activeQueueOperations.findIndex((item) => item.id === operation.id);
+    if (index >= 0) {
+      const position = index + 1;
+      const total = activeQueueOperations.length;
+      if (total === 1) return { position, label: "Prioridad #1 · único en cola", tone: "first" as const };
+      if (position === 1) return { position, label: "Prioridad #1 · cargado primero", tone: "first" as const };
+      if (position === total) return { position, label: `Prioridad #${position} · cargado último`, tone: "last" as const };
+      return { position, label: `Prioridad #${position} de ${total}`, tone: "queue" as const };
+    }
+    if (operation.status === "correction_requested") return { position: null, label: "En pausa · espera corrección", tone: "paused" as const };
+    if (operation.status === "completed") return { position: null, label: "Procesado · fuera de cola", tone: "done" as const };
+    if (!operation.proof) return { position: null, label: "Sin PDF · aún no entra en cola", tone: "waiting" as const };
+    return { position: null, label: "Fuera de la cola activa", tone: "done" as const };
   };
   const sortDescription: Record<OperationSort, string> = {
+    queue_asc: "FIFO: el pago cargado primero se atiende primero",
     activity_desc: "Último movimiento arriba",
     proof_desc: "Último comprobante cargado arriba",
-    created_desc: "Pago más reciente arriba",
-    created_asc: "Primer pago arriba",
+    created_desc: "Operación más reciente arriba",
+    created_asc: "Operación más antigua arriba",
   };
   const filteredOperations = operations.filter((item) => {
     const needle = search.trim().toLowerCase();
@@ -124,6 +120,14 @@ export default function AdminPage() {
     const matchesRisk = riskFilter === "all" || item.risk === riskFilter;
     return matchesSearch && matchesStatus && matchesAccount && matchesRisk;
   }).sort((a, b) => {
+    if (sortMode === "queue_asc") {
+      const queueA = activeQueueOperations.findIndex((item) => item.id === a.id);
+      const queueB = activeQueueOperations.findIndex((item) => item.id === b.id);
+      if (queueA >= 0 && queueB >= 0) return queueA - queueB;
+      if (queueA >= 0) return -1;
+      if (queueB >= 0) return 1;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    }
     if (sortMode === "created_asc") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     if (sortMode === "created_desc") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     if (sortMode === "proof_desc") {
@@ -335,9 +339,9 @@ export default function AdminPage() {
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_500px]">
             <main className="min-w-0 space-y-4">
               <section className="premium-card overflow-hidden rounded-[1.6rem]">
-                <div className="relative z-10 flex flex-col justify-between gap-3 border-b border-[#071A2D]/8 p-5"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="text-base font-semibold">Cola prioritaria</h2><p className="mt-1 flex items-center gap-2 text-xs font-medium text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#4DE2B5]"/>{sortDescription[sortMode]}</p></div><select aria-label="Ordenar operaciones" value={sortMode} onChange={(event)=>setSortMode(event.target.value as OperationSort)} className="h-10 rounded-xl border border-[#071A2D] bg-[#071A2D] px-3 text-xs font-semibold text-white shadow-[0_8px_20px_rgba(7,26,45,.16)] outline-none transition-transform active:scale-[.98]"><option value="activity_desc">Última actividad</option><option value="proof_desc">Último comprobante cargado</option><option value="created_desc">Pago más reciente</option><option value="created_asc">Primer pago</option></select></div><div className="flex flex-wrap gap-2"><select aria-label="Filtrar por estado" value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los estados</option>{Object.entries(STABLE_STATUS).map(([value,info])=><option key={value} value={value}>{info.label}</option>)}</select><select aria-label="Filtrar por cuenta" value={accountFilter} onChange={(event)=>setAccountFilter(event.target.value)} className="max-w-[190px] rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todas las cuentas</option>{accounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select><select aria-label="Filtrar por riesgo" value={riskFilter} onChange={(event)=>setRiskFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los riesgos</option><option value="low">Bajo</option><option value="medium">Medio</option><option value="high">Alto</option></select></div></div>
-                <div className="relative z-10 overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Referencia / secuencia","Usuario Patzi / Remitente","Servicio","Enviado / Banco","Entrega","Cuenta","Fechas exactas","Estado","Riesgo"].map((h)=><th key={h} className="px-3 py-3 font-semibold">{h}</th>)}</tr></thead><tbody>{filteredOperations.map((item)=>{const sequence=duplicateSequence(item);return <tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-all duration-200 active:scale-[.998] ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}><td className="px-3 py-4 font-semibold"><span>{item.reference}</span><p className="mt-1 text-10px font-medium text-[#071A2D]/42">Registro #{chronologicalPosition(item)} de {operations.length}</p>{sequence&&<span className={`mt-1.5 block w-fit rounded-full px-2 py-0.5 text-[9px] font-semibold ${sequence.startsWith("Primero")?"bg-[#EAF1FF] text-[#356DE5]":sequence.startsWith("Último")?"bg-[#FFF0EC] text-[#D9563E]":"bg-[#FFF4D8] text-[#A46600]"}`}>{sequence}</span>}</td><td className="px-3 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[180px] truncate text-11px text-[#087F62]">{item.senderLegalName ?? "Sin remitente registrado"}</p></td><td className="px-3 py-4"><span className="flex items-center gap-2 font-medium"><AssetMark asset={item.asset} className="h-5 w-5"/>Stable</span></td><td className="px-3 py-4"><p className="font-medium">{formatUsd(item.usdAmount)} enviado</p><p className={`mt-1 text-11px ${item.bankReceivedAmount == null?"text-[#A46600]":"font-semibold text-[#087F62]"}`}>{item.bankReceivedAmount == null?"Banco pendiente":`${formatUsd(item.bankReceivedAmount)} recibido`}</p></td><td className="px-3 py-4 font-semibold">{item.deliveryAmount.toLocaleString()} {item.asset}</td><td className="px-3 py-4">{accounts.find((a)=>a.id===item.accountId)?.label}</td><td className="px-3 py-4"><p className="whitespace-nowrap text-xs font-semibold">Creado · {formatExactDate(item.createdAt)}</p><p className="mt-1 whitespace-nowrap text-10px text-[#071A2D]/42">Hace {formatElapsed(item.createdAt)}</p>{item.proof?<p className="mt-1.5 whitespace-nowrap text-10px font-semibold text-[#356DE5]">PDF · {formatExactDate(item.proof.uploadedAt)}</p>:<p className="mt-1.5 text-10px text-[#A46600]">PDF aún no cargado</p>}</td><td className="px-3 py-4"><StatusBadge status={item.status}/></td><td className="px-3 py-4"><span className={`rounded-full px-2 py-1 text-11px font-semibold ${item.risk==="medium"?"bg-[#FFF4D8] text-[#A46600]":"bg-[#E7FAF3] text-[#087F62]"}`}>{item.risk==="medium"?"Medio":"Bajo"}</span></td></tr>})}</tbody></table></div>
-                <div className="relative z-10 flex flex-col justify-between gap-1 border-t border-[#071A2D]/8 p-3 text-xs text-[#071A2D]/40 sm:flex-row"><span>{filteredOperations.length} operaciones Stable · registros numerados desde el primero creado</span><span className="font-medium text-[#087F62]">{sortDescription[sortMode]}</span></div>
+                <div className="relative z-10 flex flex-col justify-between gap-3 border-b border-[#071A2D]/8 p-5"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="text-base font-semibold">Cola prioritaria</h2><p className="mt-1 flex items-center gap-2 text-xs font-medium text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#4DE2B5]"/>{sortDescription[sortMode]}</p></div><select aria-label="Ordenar operaciones" value={sortMode} onChange={(event)=>setSortMode(event.target.value as OperationSort)} className="h-10 rounded-xl border border-[#071A2D] bg-[#071A2D] px-3 text-xs font-semibold text-white shadow-[0_8px_20px_rgba(7,26,45,.16)] outline-none transition-transform active:scale-[.98]"><option value="queue_asc">Prioridad FIFO · primero cargado</option><option value="proof_desc">Último pago cargado</option><option value="activity_desc">Última actividad</option><option value="created_desc">Operación más reciente</option><option value="created_asc">Operación más antigua</option></select></div><div className="flex flex-wrap gap-2"><select aria-label="Filtrar por estado" value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los estados</option>{Object.entries(STABLE_STATUS).map(([value,info])=><option key={value} value={value}>{info.label}</option>)}</select><select aria-label="Filtrar por cuenta" value={accountFilter} onChange={(event)=>setAccountFilter(event.target.value)} className="max-w-[190px] rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todas las cuentas</option>{accounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select><select aria-label="Filtrar por riesgo" value={riskFilter} onChange={(event)=>setRiskFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los riesgos</option><option value="low">Bajo</option><option value="medium">Medio</option><option value="high">Alto</option></select></div></div>
+                <div className="relative z-10 overflow-x-auto"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Referencia / prioridad","Usuario Patzi / Remitente","Servicio","Enviado / Banco","Entrega","Cuenta","Fechas exactas","Estado","Riesgo"].map((h)=><th key={h} className="px-3 py-3 font-semibold">{h}</th>)}</tr></thead><tbody>{filteredOperations.map((item)=>{const queue=queuePriority(item);return <tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-all duration-200 active:scale-[.998] ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}><td className="px-3 py-4 font-semibold"><span>{item.reference}</span><span className={`mt-1.5 block w-fit rounded-full px-2 py-1 text-[9px] font-semibold ${queue.tone==="first"?"bg-[#DDF8EE] text-[#087F62] ring-1 ring-[#0AA883]/20":queue.tone==="last"?"bg-[#EAF1FF] text-[#356DE5]":queue.tone==="queue"?"bg-[#FFF4D8] text-[#A46600]":queue.tone==="paused"?"bg-[#FFF0EC] text-[#D9563E]":"bg-[#F0F3F2] text-[#071A2D]/45"}`}>{queue.label}</span>{queue.position&&item.proof?<p className="mt-1.5 whitespace-nowrap text-[9px] font-medium text-[#071A2D]/40">Entró · {formatExactDate(item.proof.uploadedAt)}</p>:null}</td><td className="px-3 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[180px] truncate text-11px text-[#087F62]">{item.senderLegalName ?? "Sin remitente registrado"}</p></td><td className="px-3 py-4"><span className="flex items-center gap-2 font-medium"><AssetMark asset={item.asset} className="h-5 w-5"/>Stable</span></td><td className="px-3 py-4"><p className="font-medium">{formatUsd(item.usdAmount)} enviado</p><p className={`mt-1 text-11px ${item.bankReceivedAmount == null?"text-[#A46600]":"font-semibold text-[#087F62]"}`}>{item.bankReceivedAmount == null?"Banco pendiente":`${formatUsd(item.bankReceivedAmount)} recibido`}</p></td><td className="px-3 py-4 font-semibold">{item.deliveryAmount.toLocaleString()} {item.asset}</td><td className="px-3 py-4">{accounts.find((a)=>a.id===item.accountId)?.label}</td><td className="px-3 py-4"><p className="whitespace-nowrap text-xs font-semibold">Creado · {formatExactDate(item.createdAt)}</p><p className="mt-1 whitespace-nowrap text-10px text-[#071A2D]/42">Hace {formatElapsed(item.createdAt)}</p>{item.proof?<p className="mt-1.5 whitespace-nowrap text-10px font-semibold text-[#356DE5]">PDF · {formatExactDate(item.proof.uploadedAt)}</p>:<p className="mt-1.5 text-10px text-[#A46600]">PDF aún no cargado</p>}</td><td className="px-3 py-4"><StatusBadge status={item.status}/></td><td className="px-3 py-4"><span className={`rounded-full px-2 py-1 text-11px font-semibold ${item.risk==="medium"?"bg-[#FFF4D8] text-[#A46600]":"bg-[#E7FAF3] text-[#087F62]"}`}>{item.risk==="medium"?"Medio":"Bajo"}</span></td></tr>})}</tbody></table></div>
+                <div className="relative z-10 flex flex-col justify-between gap-1 border-t border-[#071A2D]/8 p-3 text-xs text-[#071A2D]/40 sm:flex-row"><span>{activeQueueOperations.length} pagos activos en cola · prioridad según la hora de carga del PDF</span><span className="font-medium text-[#087F62]">{sortDescription[sortMode]}</span></div>
               </section>
 
               <section className="premium-card rounded-[1.6rem] p-5">
