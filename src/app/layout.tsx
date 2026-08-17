@@ -8,11 +8,11 @@ import { LanguageProvider } from "@/lib/i18n";
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.patzi.net"),
   title: {
-    default: "Patzi | Remesas y cambio de USD a USDT o USDC",
+    default: "Patzi | Remesas y cambio de USD a USDT",
     template: "%s | Patzi",
   },
   description:
-    "Envía remesas y, si tu cuenta está verificada, cambia USD por USDT o USDC en Ethereum ERC-20. Sigue cada operación desde un solo lugar.",
+    "Envía remesas y, si tu cuenta está verificada, cambia USD por USDT en Ethereum ERC-20. Sigue cada operación desde un solo lugar.",
   applicationName: "Patzi",
   alternates: {
     canonical: "/",
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Patzi — Remesas y stablecoins, en una sola ruta",
     description:
-      "Envía remesas y gestiona cambios de USD a USDT o USDC para cuentas verificadas, con seguimiento claro en cada etapa.",
+      "Envía remesas y gestiona cambios de USD a USDT para cuentas verificadas, con seguimiento claro en cada etapa.",
     siteName: "Patzi",
     url: "https://www.patzi.net/",
     locale: "es_ES",
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Patzi — Remesas y stablecoins, en una sola ruta",
     description:
-      "Remesas y cambios de USD a USDT o USDC para cuentas verificadas, con seguimiento claro en cada etapa.",
+      "Remesas y cambios de USD a USDT para cuentas verificadas, con seguimiento claro en cada etapa.",
   },
   robots: {
     index: true,
@@ -59,7 +59,7 @@ const organizationJsonLd = {
   url: "https://www.patzi.net/",
   logo: "https://www.patzi.net/patzi-logo.svg",
   description:
-    "Plataforma digital para gestionar remesas y operaciones de USD a USDT o USDC en cuentas verificadas.",
+    "Plataforma digital para gestionar remesas y operaciones de USD a USDT en cuentas verificadas.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

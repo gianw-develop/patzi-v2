@@ -28,7 +28,7 @@ export default function AuthShell({ children, variant = "login" }: { children: R
               <div className="flex items-center justify-between"><div><p className="text-[9px] text-white/42">{t("Tú recibes")}</p><p className="mt-1 text-2xl font-semibold text-[#4DE2B5]">900 USDT</p></div><AssetMark asset="USDT" className="h-10 w-10" /></div>
             </div>
             <div className="depth-float-delayed absolute bottom-0 right-0 z-10 rounded-2xl border border-white/12 bg-[#0D2A40]/90 p-4 shadow-[0_24px_50px_rgba(0,0,0,.3)] backdrop-blur-xl">
-              <div className="flex gap-2"><AssetChip asset="USDC" dark /><AssetChip asset="ETH" dark /></div>
+              <div className="flex gap-2"><AssetChip asset="USDT" dark /><AssetChip asset="ETH" dark /></div>
               <p className="mt-3 flex items-center gap-2 text-[10px] text-white/55"><FileCheck2 className="h-4 w-4 text-[#4DE2B5]" />Comprobante verificado</p>
             </div>
           </div>

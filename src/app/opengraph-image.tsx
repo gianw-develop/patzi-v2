@@ -68,7 +68,7 @@ export default function OpenGraphImage() {
             <span>con una ruta más clara.</span>
           </div>
           <div style={{ display: "flex", marginTop: 25, fontSize: 23, color: "rgba(255,255,255,.68)" }}>
-            Remesas y cambio de USD a USDT o USDC.
+            Remesas y cambio de USD a USDT.
           </div>
         </div>
 

@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Patzi — Remesas y stablecoins",
     short_name: "Patzi",
     description:
-      "Gestiona remesas y operaciones de USD a USDT o USDC desde una sola cuenta.",
+      "Gestiona remesas y operaciones de USD a USDT desde una sola cuenta.",
     start_url: "/",
     display: "standalone",
     background_color: "#F5F7F2",
