@@ -87,6 +87,10 @@ export interface StableOperation {
   senderAccountLast4?: string;
   senderConfirmedAt?: string;
   usdAmount: number;
+  quotedFeeAmount: number;
+  quotedDeliveryAmount: number;
+  bankReceivedAmount?: number;
+  bankFeeAmount?: number;
   feeAmount: number;
   asset: StableAsset;
   deliveryAmount: number;
@@ -181,6 +185,10 @@ interface DbStableOperation {
   user_id: string;
   usd_amount: number | string;
   fee_amount: number | string;
+  bank_received_amount: number | string | null;
+  bank_fee_amount: number | string | null;
+  settlement_fee_amount: number | string | null;
+  settlement_delivery_amount: number | string | null;
   asset: StableAsset;
   delivery_amount: number | string;
   wallet_address: string;
@@ -257,8 +265,10 @@ interface StableState {
   uploadProof: (operationId: string, file: File) => Promise<void>;
   uploadOperationDocument: (operation: StableOperation, type: StableDocumentType, file: File) => Promise<void>;
   updateStatus: (operationId: string, status: StableStatus, label: string, actor?: string, note?: string) => Promise<void>;
+  reconcileOperation: (operationId: string, bankReceivedAmount: number) => Promise<void>;
   setTransactionHash: (operationId: string, txHash: string) => Promise<void>;
   assignAccount: (operationId: string, accountId: string) => Promise<void>;
+  deleteOperation: (operationId: string) => Promise<{ storageCleanupPending: boolean }>;
 }
 
 const operationSelect = `
@@ -297,6 +307,11 @@ function mapSender(row: DbStableSender): StableSender {
 
 function mapOperation(row: DbStableOperation): StableOperation {
   const customer = oneCustomer(row.customer);
+  const quotedFeeAmount = Number(row.fee_amount);
+  const quotedDeliveryAmount = Number(row.delivery_amount);
+  const bankReceivedAmount = row.bank_received_amount == null ? undefined : Number(row.bank_received_amount);
+  const settlementFeeAmount = row.settlement_fee_amount == null ? undefined : Number(row.settlement_fee_amount);
+  const settlementDeliveryAmount = row.settlement_delivery_amount == null ? undefined : Number(row.settlement_delivery_amount);
   return {
     id: row.id,
     reference: row.reference,
@@ -314,9 +329,13 @@ function mapOperation(row: DbStableOperation): StableOperation {
     senderAccountLast4: row.sender_account_last4 ?? undefined,
     senderConfirmedAt: row.sender_confirmed_at ?? undefined,
     usdAmount: Number(row.usd_amount),
-    feeAmount: Number(row.fee_amount),
+    quotedFeeAmount,
+    quotedDeliveryAmount,
+    bankReceivedAmount,
+    bankFeeAmount: row.bank_fee_amount == null ? undefined : Number(row.bank_fee_amount),
+    feeAmount: settlementFeeAmount ?? quotedFeeAmount,
     asset: row.asset,
-    deliveryAmount: Number(row.delivery_amount),
+    deliveryAmount: settlementDeliveryAmount ?? quotedDeliveryAmount,
     network: "Ethereum · ERC-20",
     walletAddress: row.wallet_address,
     paymentRail: row.payment_rail,
@@ -614,6 +633,16 @@ export const useStableStore = create<StableState>((set, get) => ({
     await get().load("admin");
   },
 
+  reconcileOperation: async (operationId, bankReceivedAmount) => {
+    const { supabase } = await currentUser();
+    const { error } = await supabase.rpc("admin_reconcile_stable_operation", {
+      p_operation_id: operationId,
+      p_bank_received_amount: bankReceivedAmount,
+    });
+    if (error) throw error;
+    await get().load("admin");
+  },
+
   setTransactionHash: async (operationId, txHash) => {
     const { supabase } = await currentUser();
     const { error } = await supabase
@@ -633,6 +662,26 @@ export const useStableStore = create<StableState>((set, get) => ({
     if (error) throw error;
     await get().load("admin");
   },
+
+  deleteOperation: async (operationId) => {
+    const { supabase } = await currentUser();
+    const { data, error } = await supabase.rpc("admin_delete_stable_operation", {
+      p_operation_id: operationId,
+    });
+    if (error) throw error;
+
+    const result = (data ?? {}) as { proof_path?: string | null; document_paths?: string[] | null };
+    const cleanup = await Promise.all([
+      result.proof_path
+        ? supabase.storage.from("stable-proofs").remove([result.proof_path])
+        : Promise.resolve({ error: null }),
+      result.document_paths?.length
+        ? supabase.storage.from("stable-documents").remove(result.document_paths)
+        : Promise.resolve({ error: null }),
+    ]);
+    await get().load("admin");
+    return { storageCleanupPending: cleanup.some((item) => Boolean(item.error)) };
+  },
 }));
 
 export function formatUsd(value: number) {
@@ -650,17 +699,24 @@ export function shortWallet(wallet: string) {
 
 async function downloadPrivateFile(bucket: string, path: string, name: string) {
   const supabase = createClient();
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 60);
-  if (error || !data?.signedUrl) return false;
-  const anchor = document.createElement("a");
-  anchor.href = data.signedUrl;
-  anchor.download = name;
-  anchor.target = "_blank";
-  anchor.rel = "noopener noreferrer";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  return true;
+  const preview = window.open("", "_blank");
+  if (preview) {
+    preview.document.title = `Abriendo ${name}`;
+    preview.document.body.innerHTML = '<p style="font:16px system-ui;padding:24px;color:#071A2D">Abriendo documento privado…</p>';
+  }
+  try {
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 300);
+    if (error || !data?.signedUrl) {
+      preview?.close();
+      return false;
+    }
+    if (preview) preview.location.replace(data.signedUrl);
+    else window.location.assign(data.signedUrl);
+    return true;
+  } catch {
+    preview?.close();
+    return false;
+  }
 }
 
 export async function downloadStableDocument(document: StableDocument) {

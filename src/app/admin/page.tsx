@@ -4,15 +4,16 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle, ArrowUpRight, Check, CheckCircle2, Clock3, Copy,
-  Download, ExternalLink, FileCheck2, FileText, Filter, Landmark, Search, WalletCards,
+  ClipboardCheck, ExternalLink, FileCheck2, FileText, Filter, Landmark, LoaderCircle, Search, Trash2, WalletCards,
 } from "lucide-react";
 import { toast } from "sonner";
 import Header from "@/components/dashboard/Header";
 import OperationDocuments from "@/components/stable/OperationDocuments";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { AssetChip, AssetMark, FlagMark, FlowCircuit } from "@/components/brand/FinancialMarks";
-import { downloadProof, formatUsd, shortWallet, STABLE_STATUS, type StableStatus, useStableStore } from "@/lib/stable-store";
+import { downloadProof, formatUsd, shortWallet, STABLE_STATUS, type StableOperation, type StableStatus, useStableStore } from "@/lib/stable-store";
 
 const verifiedStatuses: StableStatus[] = ["payment_received", "preparing", "completed"];
 
@@ -30,7 +31,7 @@ function formatElapsed(createdAt: string) {
 }
 
 export default function AdminPage() {
-  const { operations, accounts, load, setStableEligible, updateStatus, setTransactionHash, assignAccount } = useStableStore();
+  const { operations, accounts, load, setStableEligible, updateStatus, reconcileOperation, setTransactionHash, assignAccount, deleteOperation } = useStableStore();
   const [selectedId, setSelectedId] = useState(operations[0]?.id ?? "");
   const [txHash, setTxHash] = useState("");
   const [tab, setTab] = useState<"detail" | "files" | "history">("detail");
@@ -38,9 +39,14 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
+  const [actualReceived, setActualReceived] = useState("");
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [copiedData, setCopiedData] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
   const selected = operations.find((item) => item.id === selectedId) ?? operations[0];
   const proofValid = Boolean(selected?.proof);
-  const paymentMatched = selected ? verifiedStatuses.includes(selected.status) : false;
+  const paymentMatched = Boolean(selected?.bankReceivedAmount != null && verifiedStatuses.includes(selected.status));
   const walletValid = Boolean(selected && /^0x[a-fA-F0-9]{40}$/.test(selected.walletAddress));
   const selectedEligible = Boolean(selected?.customerStableEligible);
   const selectedKycVerified = selected?.customerKycStatus === "approved";
@@ -55,8 +61,21 @@ export default function AdminPage() {
   const verifying = operations.filter((item) => ["proof_submitted", "verifying"].includes(item.status)).length;
   const ready = operations.filter((item) => item.status === "preparing").length;
   const alerts = operations.filter((item) => ["blocked", "correction_requested"].includes(item.status)).length;
-  const totalUsd = operations.reduce((sum, item) => sum + item.usdAmount, 0);
+  const totalUsd = operations.reduce((sum, item) => sum + (item.bankReceivedAmount ?? item.usdAmount), 0);
   const totalStable = operations.reduce((sum, item) => sum + item.deliveryAmount, 0);
+  const parsedActualReceived = Number(actualReceived);
+  const actualReceivedValid = Boolean(selected && Number.isFinite(parsedActualReceived) && parsedActualReceived > 0 && parsedActualReceived <= selected.usdAmount);
+  const previewReceived = selected?.bankReceivedAmount ?? (actualReceivedValid ? parsedActualReceived : selected?.usdAmount ?? 0);
+  const previewBankFee = selected ? Math.max(0, selected.usdAmount - previewReceived) : 0;
+  const previewPatziFee = Math.round(previewReceived * 10) / 100;
+  const previewDelivery = Math.round(previewReceived * 90) / 100;
+  const duplicateFor = (operation: StableOperation) => operations.some((candidate) =>
+    candidate.id !== operation.id
+    && candidate.userId === operation.userId
+    && candidate.senderLegalName === operation.senderLegalName
+    && candidate.usdAmount === operation.usdAmount
+    && Math.abs(new Date(candidate.createdAt).getTime() - new Date(operation.createdAt).getTime()) <= 48 * 60 * 60 * 1000
+  );
   const filteredOperations = operations.filter((item) => {
     const needle = search.trim().toLowerCase();
     const matchesSearch = !needle || [item.reference, item.customerName, item.customerEmail, item.senderLegalName, item.walletAddress].some((value) => value?.toLowerCase().includes(needle));
@@ -72,65 +91,162 @@ export default function AdminPage() {
     return () => window.clearInterval(interval);
   }, [load]);
 
+  const selectedOperationId = selected?.id;
+  const selectedBankReceived = selected?.bankReceivedAmount;
+  const selectedUsdAmount = selected?.usdAmount;
+  const selectedTransactionHash = selected?.txHash;
+  useEffect(() => {
+    if (!selectedOperationId || selectedUsdAmount == null) return;
+    setActualReceived(String(selectedBankReceived ?? selectedUsdAmount));
+    setTxHash(selectedTransactionHash ?? "");
+    setCopiedData(false);
+    setDeleteConfirm("");
+  }, [selectedOperationId, selectedBankReceived, selectedUsdAmount, selectedTransactionHash]);
+
   const performStatus = async (status: StableStatus, label: string, note?: string) => {
-    if (!selected) return;
+    if (!selected || actionBusy) return;
+    setActionBusy(`status:${status}`);
     try {
       await updateStatus(selected.id, status, label, undefined, note);
-      toast.success(`Estado actualizado: ${STABLE_STATUS[status].label}`);
+      toast.success(`Listo: ${STABLE_STATUS[status].label}`);
     } catch (statusError) {
       toast.error(statusError instanceof Error ? statusError.message : "No se pudo actualizar la operación.");
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const reconcilePayment = async () => {
+    if (!selected || actionBusy) return;
+    if (!actualReceivedValid) {
+      toast.error(`El monto recibido debe ser mayor a $0 y no superar ${formatUsd(selected.usdAmount)}.`);
+      return;
+    }
+    setActionBusy("reconcile");
+    try {
+      await reconcileOperation(selected.id, parsedActualReceived);
+      toast.success(`Ingreso conciliado: ${formatUsd(parsedActualReceived)} recibidos en banco`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo conciliar el ingreso.");
+    } finally {
+      setActionBusy(null);
     }
   };
 
   const nextAction = !selected
     ? null
-    : ["proof_submitted", "verifying", "correction_requested"].includes(selected.status)
-      ? { label: "Confirmar pago recibido", action: () => void performStatus("payment_received", "Pago recibido") }
+    : ["proof_submitted", "verifying"].includes(selected.status) || (selected.status === "payment_received" && selected.bankReceivedAmount == null)
+      ? { label: "Confirmar monto recibido", busyLabel: "Conciliando…", action: () => void reconcilePayment(), requiresAmount: true, requiresMatched: false }
       : selected.status === "payment_received"
-        ? { label: `Preparar ${selected.asset}`, action: () => void performStatus("preparing", `Preparando ${selected.asset}`) }
+        ? { label: `Preparar ${selected.asset}`, busyLabel: "Actualizando…", action: () => void performStatus("preparing", `Preparando ${selected.asset}`), requiresAmount: false, requiresMatched: true }
         : null;
 
   const requestCorrection = async () => {
-    if (!selected) return;
+    if (!selected || actionBusy) return;
     await performStatus("correction_requested", "Corrección solicitada", "El comprobante no coincide con el ingreso bancario. Reemplázalo por el PDF correcto.");
   };
 
-  const download = async () => {
-    if (!selected?.proof) return;
-    if (!(await downloadProof(selected.proof))) toast.error("No se pudo abrir el comprobante privado.");
+  const openProof = async () => {
+    if (!selected?.proof || actionBusy) return;
+    setActionBusy("proof");
+    try {
+      if (!(await downloadProof(selected.proof))) toast.error("No se pudo abrir el comprobante privado.");
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const copyCompleteData = async () => {
+    if (!selected) return;
+    const account = accounts.find((item) => item.id === selected.accountId);
+    const lines = [
+      `PATZI OPERATION: ${selected.reference}`,
+      `Patzi user: ${selected.customerName}`,
+      `Patzi user email: ${selected.customerEmail}`,
+      `USD sender: ${selected.senderLegalName ?? "Not registered"}`,
+      `Sender type: ${selected.senderType === "business" ? "Business" : "Individual"}`,
+      `Sender email: ${selected.senderEmail ?? "Not registered"}`,
+      `Sender phone: ${selected.senderPhone ?? "Not registered"}`,
+      `Sender bank: ${selected.senderBankName ?? "Not registered"}`,
+      `Sender account last 4: ${selected.senderAccountLast4 ?? "Not registered"}`,
+      `Amount sent: ${formatUsd(selected.usdAmount)}`,
+      `Amount received by bank: ${selected.bankReceivedAmount == null ? "Pending reconciliation" : formatUsd(selected.bankReceivedAmount)}`,
+      `Bank fee: ${selected.bankFeeAmount == null ? "Pending reconciliation" : formatUsd(selected.bankFeeAmount)}`,
+      `Patzi fee (10%): ${formatUsd(selected.feeAmount)}`,
+      `Client receives: ${selected.deliveryAmount} ${selected.asset}`,
+      `Network: Ethereum ERC-20`,
+      `Wallet: ${selected.walletAddress}`,
+      `Receiving account holder: ${account?.holder ?? "Not assigned"}`,
+      `Receiving bank: ${account?.bank ?? "Not assigned"}`,
+      `Receiving account: ${account?.accountNumber ?? "Not assigned"}`,
+      `Payment rail: ${selected.paymentRail}`,
+      `Routing: ${selected.paymentRail === "ACH" ? account?.achRoutingNumber ?? "" : account?.wireRoutingNumber ?? ""}`,
+      `Created: ${new Date(selected.createdAt).toLocaleString("en-US")}`,
+    ];
+    await navigator.clipboard.writeText(lines.join("\n"));
+    setCopiedData(true);
+    toast.success("Datos completos copiados");
+    window.setTimeout(() => setCopiedData(false), 1800);
   };
 
   const complete = async () => {
-    if (!selected) return;
+    if (!selected || actionBusy) return;
     if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) { toast.error("Introduce un hash Ethereum válido de 66 caracteres"); return; }
+    setActionBusy("complete");
     try {
       await setTransactionHash(selected.id, txHash);
       setTxHash("");
       toast.success("Hash registrado y operación completada");
     } catch (hashError) {
       toast.error(hashError instanceof Error ? hashError.message : "No se pudo registrar el hash.");
+    } finally {
+      setActionBusy(null);
     }
   };
 
   const changeEligibility = async (eligible: boolean) => {
-    if (!selected) return;
+    if (!selected || actionBusy) return;
+    setActionBusy("eligibility");
     try {
       await setStableEligible(selected.userId, eligible);
       toast.success(eligible ? "Cliente habilitado para Stable" : "Acceso Stable retirado");
     } catch (eligibilityError) {
       toast.error(eligibilityError instanceof Error ? eligibilityError.message : "No se pudo cambiar el acceso.");
+    } finally {
+      setActionBusy(null);
     }
   };
 
   const changeAccount = async (accountId: string) => {
-    if (!selected) return;
+    if (!selected || actionBusy) return;
     if (!canReassignAccount) { toast.error("Solo puedes reasignar mientras la operación espera el pago."); return; }
     if (accountId === selected.accountId) return;
+    setActionBusy("account");
     try {
       await assignAccount(selected.id, accountId);
       toast.success("Cuenta receptora actualizada");
     } catch (accountError) {
       toast.error(accountError instanceof Error ? accountError.message : "No se pudo asignar la cuenta.");
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const removeSelectedOperation = async () => {
+    if (!selected || deleteConfirm.trim() !== selected.reference || actionBusy) return;
+    const fallbackId = operations.find((item) => item.id !== selected.id)?.id ?? "";
+    setActionBusy("delete");
+    try {
+      const result = await deleteOperation(selected.id);
+      setSelectedId(fallbackId);
+      setDeleteOpen(false);
+      setDeleteConfirm("");
+      toast.success(`${selected.reference} eliminada por completo`);
+      if (result.storageCleanupPending) toast.warning("La operación se eliminó; quedó una limpieza de archivo pendiente.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo eliminar la operación.");
+    } finally {
+      setActionBusy(null);
     }
   };
 
@@ -169,7 +285,7 @@ export default function AdminPage() {
             <main className="min-w-0 space-y-4">
               <section className="premium-card overflow-hidden rounded-[1.6rem]">
                 <div className="relative z-10 flex flex-col justify-between gap-3 border-b border-[#071A2D]/8 p-5 sm:flex-row sm:items-center"><div><h2 className="text-base font-semibold">Cola prioritaria</h2><p className="mt-1 text-xs text-[#071A2D]/42">Ordenada por antigüedad, estado y riesgo</p></div><div className="flex flex-wrap gap-2"><select aria-label="Filtrar por estado" value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los estados</option>{Object.entries(STABLE_STATUS).map(([value,info])=><option key={value} value={value}>{info.label}</option>)}</select><select aria-label="Filtrar por cuenta" value={accountFilter} onChange={(event)=>setAccountFilter(event.target.value)} className="max-w-[190px] rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todas las cuentas</option>{accounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select><select aria-label="Filtrar por riesgo" value={riskFilter} onChange={(event)=>setRiskFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los riesgos</option><option value="low">Bajo</option><option value="medium">Medio</option><option value="high">Alto</option></select></div></div>
-                <div className="relative z-10 overflow-x-auto"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Referencia","Usuario Patzi / Remitente","Servicio","Envía","Entrega","Cuenta","Tiempo","Estado","Riesgo"].map((h)=><th key={h} className="px-3 py-3 font-semibold">{h}</th>)}</tr></thead><tbody>{filteredOperations.map((item)=><tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-colors ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}><td className="px-3 py-4 font-semibold">{item.reference}</td><td className="px-3 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[180px] truncate text-11px text-[#087F62]">{item.senderLegalName ?? "Sin remitente registrado"}</p></td><td className="px-3 py-4"><span className="flex items-center gap-2 font-medium"><AssetMark asset={item.asset} className="h-5 w-5"/>Stable</span></td><td className="px-3 py-4 font-medium">{formatUsd(item.usdAmount)}</td><td className="px-3 py-4 font-semibold">{item.deliveryAmount.toLocaleString()} {item.asset}</td><td className="px-3 py-4">{accounts.find((a)=>a.id===item.accountId)?.label}</td><td className="px-3 py-4 text-[#071A2D]/48">{formatElapsed(item.createdAt)}</td><td className="px-3 py-4"><StatusBadge status={item.status}/></td><td className="px-3 py-4"><span className={`rounded-full px-2 py-1 text-11px font-semibold ${item.risk==="medium"?"bg-[#FFF4D8] text-[#A46600]":"bg-[#E7FAF3] text-[#087F62]"}`}>{item.risk==="medium"?"Medio":"Bajo"}</span></td></tr>)}</tbody></table></div>
+                <div className="relative z-10 overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Referencia","Usuario Patzi / Remitente","Servicio","Enviado / Banco","Entrega","Cuenta","Tiempo","Estado","Riesgo"].map((h)=><th key={h} className="px-3 py-3 font-semibold">{h}</th>)}</tr></thead><tbody>{filteredOperations.map((item)=><tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-all duration-200 active:scale-[.998] ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}><td className="px-3 py-4 font-semibold"><span>{item.reference}</span>{duplicateFor(item)&&<span className="mt-1 block w-fit rounded-full bg-[#FFF0EC] px-2 py-0.5 text-[9px] font-semibold text-[#D9563E]">Posible duplicado</span>}</td><td className="px-3 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[180px] truncate text-11px text-[#087F62]">{item.senderLegalName ?? "Sin remitente registrado"}</p></td><td className="px-3 py-4"><span className="flex items-center gap-2 font-medium"><AssetMark asset={item.asset} className="h-5 w-5"/>Stable</span></td><td className="px-3 py-4"><p className="font-medium">{formatUsd(item.usdAmount)} enviado</p><p className={`mt-1 text-11px ${item.bankReceivedAmount == null?"text-[#A46600]":"font-semibold text-[#087F62]"}`}>{item.bankReceivedAmount == null?"Banco pendiente":`${formatUsd(item.bankReceivedAmount)} recibido`}</p></td><td className="px-3 py-4 font-semibold">{item.deliveryAmount.toLocaleString()} {item.asset}</td><td className="px-3 py-4">{accounts.find((a)=>a.id===item.accountId)?.label}</td><td className="px-3 py-4 text-[#071A2D]/48">{formatElapsed(item.createdAt)}</td><td className="px-3 py-4"><StatusBadge status={item.status}/></td><td className="px-3 py-4"><span className={`rounded-full px-2 py-1 text-11px font-semibold ${item.risk==="medium"?"bg-[#FFF4D8] text-[#A46600]":"bg-[#E7FAF3] text-[#087F62]"}`}>{item.risk==="medium"?"Medio":"Bajo"}</span></td></tr>)}</tbody></table></div>
                 <div className="relative z-10 flex items-center justify-between border-t border-[#071A2D]/8 p-3 text-xs text-[#071A2D]/40"><span>{filteredOperations.length} operaciones Stable en cola</span><span>{filteredOperations.length === operations.length ? "Vista completa" : "Filtros activos"}</span></div>
               </section>
 
@@ -181,25 +297,37 @@ export default function AdminPage() {
             {selected && <aside className="premium-card h-fit rounded-[1.7rem] p-5 xl:sticky xl:top-3">
               <div className="relative z-10 flex items-center justify-between border-b border-[#071A2D]/8 pb-4"><div className="flex items-center gap-3"><AssetMark asset={selected.asset} className="h-9 w-9"/><div><p className="premium-kicker text-[#087F62]">Patzi Stable</p><h2 className="mt-1 text-lg font-semibold">{selected.reference}</h2></div></div><button type="button" onClick={()=>window.open(`https://etherscan.io/address/${selected.walletAddress}`,"_blank","noopener,noreferrer")} className="grid h-9 w-9 place-items-center rounded-xl border border-[#071A2D]/9 bg-white" aria-label="Ver wallet en Etherscan"><ExternalLink className="h-4 w-4"/></button></div>
               <div className="relative z-10 mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-[#071A2D] text-sm font-semibold text-white shadow-lg">{selected.customerName.split(" ").map((part)=>part[0]).join("").slice(0,2).toUpperCase()}</div><div><p className="font-semibold">{selected.customerName}</p><p className="mt-1 text-xs text-[#071A2D]/42">{selected.customerEmail}</p><p className={`mt-1 flex items-center gap-1 text-xs ${selectedKycVerified?"text-[#087F62]":"text-[#D9563E]"}`}><CheckCircle2 className="h-3 w-3"/>{selectedKycVerified?"KYC verificado":"KYC pendiente"}</p></div></div><div className="flex items-center gap-3"><div className="text-right"><p className="text-xs font-semibold">Apto Stablecoin</p><p className="text-11px text-[#071A2D]/38">Control manual</p></div><Switch checked={selectedEligible} onCheckedChange={(checked)=>void changeEligibility(checked)}/></div></div>
-              <div className="relative z-10 mt-4 rounded-2xl border border-[#0AA883]/18 bg-[#E7FAF3]/55 p-4"><div className="flex items-start justify-between gap-3"><div><p className="premium-kicker text-[#087F62]">Titular que envía los USD</p><p className="mt-2 text-sm font-semibold">{selected.senderLegalName ?? "Remitente no registrado"}</p><p className="mt-1 text-xs text-[#071A2D]/45">{selected.senderEmail ?? "Sin correo"} · {selected.senderPhone ?? "Sin teléfono"}</p>{selected.senderBankName && <p className="mt-2 text-xs font-medium text-[#356DE5]">{selected.senderBankName}{selected.senderAccountLast4 ? ` · •••• ${selected.senderAccountLast4}` : ""}</p>}</div><span className={`rounded-full px-2.5 py-1 text-11px font-semibold ${senderIdentityValid ? "bg-white text-[#087F62]" : "bg-[#FFF0EC] text-[#D9563E]"}`}>{senderIdentityValid ? "Identidad completa" : "Datos pendientes"}</span></div></div>
-              <div className="relative z-10 mt-5 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2 rounded-2xl bg-[#F3F7F4] p-4 text-center"><div><p className="text-lg font-semibold">{formatUsd(selected.usdAmount)}</p><p className="text-10px text-[#071A2D]/38">RECIBIDO</p></div><span className="text-[#071A2D]/20">−</span><div><p className="text-lg font-semibold text-[#D9563E]">{formatUsd(selected.feeAmount)}</p><p className="text-10px text-[#071A2D]/38">COMISIÓN 10%</p></div><span className="text-[#071A2D]/20">=</span><div><p className="text-lg font-semibold text-[#087F62]">{selected.deliveryAmount}</p><p className="text-10px text-[#071A2D]/38">{selected.asset} A ENVIAR</p></div></div>
+              <div className="relative z-10 mt-4 rounded-2xl border border-[#0AA883]/18 bg-[#E7FAF3]/55 p-4">
+                <div className="flex items-start justify-between gap-3"><div><p className="premium-kicker text-[#087F62]">Titular que envía los USD</p><p className="mt-2 text-base font-semibold">{selected.senderLegalName ?? "Remitente no registrado"}</p><p className="mt-1 text-xs text-[#071A2D]/55">{selected.senderType === "business" ? "Empresa" : "Persona"}</p></div><span className={`rounded-full px-2.5 py-1 text-11px font-semibold ${senderIdentityValid ? "bg-white text-[#087F62]" : "bg-[#FFF0EC] text-[#D9563E]"}`}>{senderIdentityValid ? "Identidad completa" : "Datos pendientes"}</span></div>
+                <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2"><div className="rounded-xl bg-white/70 p-3"><span className="text-[#071A2D]/40">Correo del remitente</span><p className="mt-1 break-all font-medium">{selected.senderEmail ?? "Sin correo"}</p></div><div className="rounded-xl bg-white/70 p-3"><span className="text-[#071A2D]/40">Teléfono</span><p className="mt-1 font-medium">{selected.senderPhone ?? "Sin teléfono"}</p></div><div className="rounded-xl bg-white/70 p-3"><span className="text-[#071A2D]/40">Banco de origen</span><p className="mt-1 font-medium">{selected.senderBankName ?? "No registrado"}</p></div><div className="rounded-xl bg-white/70 p-3"><span className="text-[#071A2D]/40">Cuenta de origen</span><p className="mt-1 font-medium">{selected.senderAccountLast4 ? `Terminada en ${selected.senderAccountLast4}` : "No registrada"}</p></div></div>
+                <button type="button" onClick={()=>void copyCompleteData()} className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#0AA883]/25 bg-white text-xs font-semibold text-[#087F62] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:scale-[.98] motion-reduce:transform-none"><ClipboardCheck className={`h-4 w-4 transition-transform ${copiedData?"scale-110":""}`}/>{copiedData?"Datos copiados":"Copiar datos completos para factura y contrato"}</button>
+              </div>
+              <div className="relative z-10 mt-5 rounded-2xl bg-[#F3F7F4] p-4"><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><div><p className="text-lg font-semibold">{formatUsd(selected.usdAmount)}</p><p className="text-10px text-[#071A2D]/38">ENVIADO POR CLIENTE</p></div><div><p className="text-lg font-semibold text-[#356DE5]">{selected.bankReceivedAmount == null ? "Pendiente" : formatUsd(selected.bankReceivedAmount)}</p><p className="text-10px text-[#071A2D]/38">RECIBIDO EN BANCO</p></div><div><p className="text-lg font-semibold text-[#D9563E]">{selected.bankReceivedAmount == null ? "—" : formatUsd(selected.bankFeeAmount ?? 0)}</p><p className="text-10px text-[#071A2D]/38">FEE BANCARIO</p></div><div><p className="text-lg font-semibold text-[#D9563E]">{formatUsd(selected.feeAmount)}</p><p className="text-10px text-[#071A2D]/38">COMISIÓN PATZI 10%</p></div></div><div className="mt-3 flex items-center justify-between rounded-xl bg-white px-3 py-2"><span className="text-xs text-[#071A2D]/45">Entrega neta al cliente</span><strong className="text-lg text-[#087F62]">{selected.deliveryAmount.toLocaleString()} {selected.asset}</strong></div></div>
 
               <div className="relative z-10 mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-[#071A2D]/8 p-3"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-semibold">Comprobante</p>{selected.proof&&<button onClick={download} aria-label="Descargar comprobante"><Download className="h-4 w-4"/></button>}</div>{selected.proof?<div className="flex items-center gap-3 rounded-xl bg-[#F6F8F6] p-3"><FileText className="h-7 w-7 text-[#D9563E]"/><div className="min-w-0"><p className="truncate text-xs font-semibold">{selected.proof.name}</p><p className="mt-1 text-11px text-[#071A2D]/38">{Math.round(selected.proof.size/1024)} KB · PDF</p></div></div>:<div className="rounded-xl border border-dashed border-[#071A2D]/15 p-4 text-center text-xs text-[#071A2D]/38">Sin comprobante</div>}</div>
+                <div className="rounded-2xl border border-[#071A2D]/8 p-3"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-semibold">Comprobante</p>{selected.proof&&<button type="button" onClick={()=>void openProof()} disabled={actionBusy==="proof"} className="flex h-8 items-center gap-1.5 rounded-lg border border-[#071A2D]/9 px-2 text-10px font-semibold transition-all hover:border-[#0AA883] active:scale-95 disabled:opacity-60" aria-label="Abrir comprobante">{actionBusy==="proof"?<LoaderCircle className="h-3.5 w-3.5 animate-spin"/>:<ExternalLink className="h-3.5 w-3.5"/>}{actionBusy==="proof"?"Abriendo…":"Abrir"}</button>}</div>{selected.proof?<button type="button" onClick={()=>void openProof()} className="flex w-full items-center gap-3 rounded-xl bg-[#F6F8F6] p-3 text-left transition-colors hover:bg-[#EDF6F1]"><FileText className="h-7 w-7 text-[#D9563E]"/><div className="min-w-0"><p className="truncate text-xs font-semibold">{selected.proof.name}</p><p className="mt-1 text-11px text-[#071A2D]/38">{Math.round(selected.proof.size/1024)} KB · PDF</p></div></button>:<div className="rounded-xl border border-dashed border-[#071A2D]/15 p-4 text-center text-xs text-[#071A2D]/38">Sin comprobante</div>}</div>
                 <div className="rounded-2xl border border-[#071A2D]/8 p-3"><div className="mb-3 flex items-center justify-between"><p className="text-xs font-semibold">Wallet</p><AssetChip asset="ETH"/></div><p className="truncate text-sm font-semibold">{shortWallet(selected.walletAddress)}</p><button onClick={()=>{navigator.clipboard.writeText(selected.walletAddress);toast.success("Wallet copiada")}} className="mt-3 flex items-center gap-2 text-xs font-medium text-[#087F62]"><Copy className="h-3.5 w-3.5"/>Copiar dirección</button></div>
               </div>
 
-              <div className="relative z-10 mt-3 rounded-2xl border border-[#071A2D]/8 p-3"><div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-xs font-semibold">Conciliación bancaria</p><p className="mt-1 text-11px text-[#071A2D]/40">Cuenta asignada a esta operación</p></div><span className="rounded-full bg-[#E7FAF3] px-2.5 py-1 text-11px font-semibold text-[#087F62]">{selected.paymentRail}</span></div><label className="mb-3 block text-11px font-medium text-[#071A2D]/50">Cuenta receptora<select value={selected.accountId} onChange={(event)=>void changeAccount(event.target.value)} disabled={!canReassignAccount} className="mt-1.5 h-10 w-full rounded-xl border border-[#071A2D]/10 bg-[#F7F9F7] px-3 text-xs font-semibold outline-none focus:border-[#2775CA] disabled:cursor-not-allowed disabled:opacity-60">{compatibleAccounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select></label><p className="mb-3 text-11px leading-4 text-[#071A2D]/42">{canReassignAccount?"Puedes reasignar antes de recibir el pago. Solo aparecen cuentas activas y compatibles.":"La cuenta queda bloqueada después de recibir o verificar el pago."}</p><div className="grid grid-cols-3 gap-2 text-11px"><div className="rounded-lg bg-[#F7F9F7] p-2"><span className="text-[#071A2D]/40">Monto esperado</span><p className="mt-1 font-semibold">{formatUsd(selected.usdAmount)}</p></div><div className="rounded-lg bg-[#F7F9F7] p-2"><span className="text-[#071A2D]/40">Creada</span><p className="mt-1 font-semibold">{new Date(selected.createdAt).toLocaleDateString("es-ES")}</p></div><div className="rounded-lg bg-[#F7F9F7] p-2"><span className="text-[#071A2D]/40">Remitente</span><p className="mt-1 truncate font-semibold">{selected.senderLegalName ?? "Sin registro"}</p></div></div>{!paymentMatched&&<div className="mt-3 flex items-center gap-2 rounded-xl bg-[#FFF4D8] p-2 text-11px text-[#A46600]"><AlertTriangle className="h-3.5 w-3.5"/>Falta conciliar el ingreso bancario.</div>}</div>
-              <div className="relative z-10 mt-3 grid gap-3 rounded-2xl border border-[#071A2D]/8 p-3 sm:grid-cols-[1fr_180px]"><div><p className="mb-3 text-xs font-semibold">Lista de verificación</p>{[["Usuario Patzi apto",selectedEligible&&selectedKycVerified],["Remitente identificado",senderIdentityValid],["Ingreso conciliado",paymentMatched],["Comprobante válido",proofValid],["Wallet confirmada",walletValid]].map(([label,done])=><div key={String(label)} className="mb-2 flex items-center justify-between text-11px"><span className="flex items-center gap-2"><span className={`grid h-4 w-4 place-items-center rounded-full border ${done?"border-[#0AA883] bg-[#0AA883] text-white":"border-[#071A2D]/15"}`}>{done&&<Check className="h-2.5 w-2.5"/>}</span>{label as string}</span><span className={done?"text-[#087F62]":"text-[#071A2D]/30"}>{done?"Listo":"Pendiente"}</span></div>)}</div><div className="space-y-2">{nextAction&&<Button onClick={nextAction.action} disabled={!checklistComplete} className="h-10 w-full bg-[#071A2D] text-xs font-semibold">{nextAction.label}</Button>}<Button onClick={()=>void requestCorrection()} disabled={selected.status==="completed"||selected.status==="blocked"} variant="outline" className="h-10 w-full border-[#071A2D]/12 bg-white text-xs font-semibold text-[#D9563E] hover:bg-[#FFF0EC]">Solicitar corrección</Button></div></div>
+              <div className="relative z-10 mt-3 rounded-2xl border border-[#071A2D]/8 p-3"><div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-xs font-semibold">Conciliación bancaria</p><p className="mt-1 text-11px text-[#071A2D]/40">Compara lo enviado con lo que realmente abonó el banco</p></div><span className="rounded-full bg-[#E7FAF3] px-2.5 py-1 text-11px font-semibold text-[#087F62]">{selected.paymentRail}</span></div><label className="mb-3 block text-11px font-medium text-[#071A2D]/50">Cuenta receptora<select value={selected.accountId} onChange={(event)=>void changeAccount(event.target.value)} disabled={!canReassignAccount||actionBusy==="account"} className="mt-1.5 h-10 w-full rounded-xl border border-[#071A2D]/10 bg-[#F7F9F7] px-3 text-xs font-semibold outline-none focus:border-[#2775CA] disabled:cursor-not-allowed disabled:opacity-60">{compatibleAccounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select></label>{(["proof_submitted","verifying"].includes(selected.status)||(selected.status==="payment_received"&&selected.bankReceivedAmount==null))&&<div className="mb-3 rounded-xl border border-[#356DE5]/18 bg-[#EEF4FF] p-3"><label className="text-11px font-semibold text-[#071A2D]">Monto que llegó realmente al banco (USD)<input type="number" min="0.01" max={selected.usdAmount} step="0.01" inputMode="decimal" value={actualReceived} onChange={(event)=>setActualReceived(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#356DE5]/20 bg-white px-3 text-base font-semibold outline-none focus:border-[#356DE5]"/></label><div className="mt-3 grid grid-cols-3 gap-2 text-10px"><div><span className="text-[#071A2D]/42">Fee banco</span><p className="mt-1 font-semibold text-[#D9563E]">{formatUsd(previewBankFee)}</p></div><div><span className="text-[#071A2D]/42">Patzi 10%</span><p className="mt-1 font-semibold">{formatUsd(previewPatziFee)}</p></div><div><span className="text-[#071A2D]/42">Cliente recibe</span><p className="mt-1 font-semibold text-[#087F62]">{previewDelivery} {selected.asset}</p></div></div>{!actualReceivedValid&&<p className="mt-2 text-10px font-medium text-[#D9563E]">Introduce un importe entre $0.01 y {formatUsd(selected.usdAmount)}.</p>}</div>}<div className="grid grid-cols-3 gap-2 text-11px"><div className="rounded-lg bg-[#F7F9F7] p-2"><span className="text-[#071A2D]/40">Enviado</span><p className="mt-1 font-semibold">{formatUsd(selected.usdAmount)}</p></div><div className="rounded-lg bg-[#F7F9F7] p-2"><span className="text-[#071A2D]/40">Banco recibió</span><p className="mt-1 font-semibold">{selected.bankReceivedAmount == null?"Pendiente":formatUsd(selected.bankReceivedAmount)}</p></div><div className="rounded-lg bg-[#F7F9F7] p-2"><span className="text-[#071A2D]/40">Fee bancario</span><p className="mt-1 font-semibold">{selected.bankFeeAmount == null?"Pendiente":formatUsd(selected.bankFeeAmount)}</p></div></div>{!paymentMatched&&<div className="mt-3 flex items-center gap-2 rounded-xl bg-[#FFF4D8] p-2 text-11px text-[#A46600]"><AlertTriangle className="h-3.5 w-3.5"/>Falta guardar el importe que realmente llegó al banco.</div>}</div>
+              <div className="relative z-10 mt-3 grid gap-3 rounded-2xl border border-[#071A2D]/8 p-3 sm:grid-cols-[1fr_190px]"><div><p className="mb-3 text-xs font-semibold">Lista de verificación</p>{[["Usuario Patzi apto",selectedEligible&&selectedKycVerified],["Remitente identificado",senderIdentityValid],["Ingreso conciliado",paymentMatched],["Comprobante válido",proofValid],["Wallet confirmada",walletValid]].map(([label,done])=><div key={String(label)} className="mb-2 flex items-center justify-between text-11px"><span className="flex items-center gap-2"><span className={`grid h-4 w-4 place-items-center rounded-full border ${done?"border-[#0AA883] bg-[#0AA883] text-white":"border-[#071A2D]/15"}`}>{done&&<Check className="h-2.5 w-2.5"/>}</span>{label as string}</span><span className={done?"text-[#087F62]":"text-[#071A2D]/30"}>{done?"Listo":"Pendiente"}</span></div>)}</div><div className="space-y-2">{nextAction&&<Button onClick={nextAction.action} disabled={!checklistComplete||(nextAction.requiresAmount&&!actualReceivedValid)||(nextAction.requiresMatched&&!paymentMatched)||Boolean(actionBusy)} className="h-10 w-full bg-[#071A2D] text-xs font-semibold transition-all duration-200 active:scale-[.98]">{actionBusy?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:null}{actionBusy?nextAction.busyLabel:nextAction.label}</Button>}<Button onClick={()=>void requestCorrection()} disabled={selected.status==="completed"||selected.status==="blocked"||Boolean(actionBusy)} variant="outline" className="h-10 w-full border-[#071A2D]/12 bg-white text-xs font-semibold text-[#D9563E] transition-all active:scale-[.98] hover:bg-[#FFF0EC]">{actionBusy==="status:correction_requested"?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:null}{actionBusy==="status:correction_requested"?"Solicitando…":"Solicitar corrección"}</Button></div></div>
 
-              {(selected.status==="preparing"||selected.status==="completed")&&<div className="relative z-10 mt-3 rounded-2xl border border-[#0AA883]/18 bg-[#EAF8F3] p-3"><div className="flex items-center gap-2"><AssetMark asset={selected.asset} className="h-6 w-6"/><p className="text-xs font-semibold">Registrar envío por Ethereum</p></div><div className="mt-3 flex gap-2"><input value={selected.txHash||txHash} onChange={(e)=>setTxHash(e.target.value.trim())} disabled={selected.status==="completed"} placeholder="0x... hash de 66 caracteres" className="h-10 min-w-0 flex-1 rounded-xl border border-[#071A2D]/9 bg-white px-3 font-mono text-11px outline-none"/><Button onClick={complete} disabled={selected.status==="completed"} className="h-10 bg-[#0AA883] text-xs font-semibold text-white">Registrar</Button></div></div>}
+              {(selected.status==="preparing"||selected.status==="completed")&&<div className="relative z-10 mt-3 rounded-2xl border border-[#0AA883]/18 bg-[#EAF8F3] p-3"><div className="flex items-center gap-2"><AssetMark asset={selected.asset} className="h-6 w-6"/><p className="text-xs font-semibold">Registrar envío por Ethereum</p></div><div className="mt-3 flex gap-2"><input value={selected.txHash||txHash} onChange={(e)=>setTxHash(e.target.value.trim())} disabled={selected.status==="completed"||actionBusy==="complete"} placeholder="0x... hash de 66 caracteres" className="h-10 min-w-0 flex-1 rounded-xl border border-[#071A2D]/9 bg-white px-3 font-mono text-11px outline-none"/><Button onClick={complete} disabled={selected.status==="completed"||actionBusy==="complete"} className="h-10 bg-[#0AA883] text-xs font-semibold text-white transition-all active:scale-[.98]">{actionBusy==="complete"?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:null}{actionBusy==="complete"?"Registrando…":"Registrar"}</Button></div></div>}
 
               <div className="relative z-10 mt-4 flex gap-5 border-b border-[#071A2D]/8 text-xs">{[["detail","Detalle"],["files","Archivos"],["history","Historial"]].map(([id,label])=><button key={id} onClick={()=>setTab(id as typeof tab)} className={`pb-2 font-semibold ${tab===id?"border-b-2 border-[#0AA883] text-[#087F62]":"text-[#071A2D]/38"}`}>{label}</button>)}</div>
               <div className="relative z-10 mt-3">{tab==="history"?<div className="max-h-40 space-y-2 overflow-y-auto">{selected.history.slice().reverse().map((item)=><div key={item.id} className="grid grid-cols-[90px_1fr_70px] gap-2 rounded-xl bg-[#F6F8F6] p-2 text-10px"><span className="text-[#071A2D]/38">{new Date(item.createdAt).toLocaleString("es-ES",{dateStyle:"short",timeStyle:"short"})}</span><span className="font-semibold">{item.label}</span><span className="text-right text-[#087F62]">{item.actor}</span></div>)}</div>:tab==="files"?<OperationDocuments operation={selected} admin />:<div className="grid grid-cols-2 gap-2 text-11px"><div className="rounded-xl bg-[#F6F8F6] p-3"><span className="text-[#071A2D]/38">Creada</span><p className="mt-1 font-semibold">{new Date(selected.createdAt).toLocaleString("es-ES")}</p></div><div className="rounded-xl bg-[#F6F8F6] p-3"><span className="text-[#071A2D]/38">Riesgo</span><p className="mt-1 font-semibold capitalize">{selected.risk}</p></div></div>}</div>
+              <div className="relative z-10 mt-4 border-t border-[#D9563E]/15 pt-4"><button type="button" onClick={()=>setDeleteOpen(true)} className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#D9563E]/20 bg-[#FFF8F6] text-xs font-semibold text-[#D9563E] transition-all duration-200 hover:bg-[#FFF0EC] active:scale-[.98]"><Trash2 className="h-4 w-4"/>Eliminar operación por completo</button></div>
             </aside>}
           </div>
         </div>
       </div>
+      <Dialog open={deleteOpen} onOpenChange={(open)=>{if(actionBusy!=="delete"){setDeleteOpen(open);if(!open)setDeleteConfirm("")}}}>
+        <DialogContent className="rounded-3xl border-[#D9563E]/20 bg-white sm:max-w-md">
+          <DialogHeader><DialogTitle className="flex items-center gap-2 text-[#D9563E]"><Trash2 className="h-5 w-5"/>Eliminar operación permanentemente</DialogTitle><DialogDescription>Se borrarán la operación, su historial, comprobante, factura y contrato. Esta acción no se puede deshacer.</DialogDescription></DialogHeader>
+          {selected&&<div className="rounded-2xl bg-[#FFF4F0] p-4"><p className="text-xs text-[#071A2D]/50">Para confirmar, escribe la referencia:</p><p className="mt-1 font-mono text-sm font-semibold text-[#071A2D]">{selected.reference}</p><input value={deleteConfirm} onChange={(event)=>setDeleteConfirm(event.target.value.toUpperCase())} autoComplete="off" className="mt-3 h-11 w-full rounded-xl border border-[#D9563E]/20 bg-white px-3 font-mono text-sm outline-none focus:border-[#D9563E]" placeholder={selected.reference}/></div>}
+          <DialogFooter><Button variant="outline" onClick={()=>setDeleteOpen(false)} disabled={actionBusy==="delete"}>Cancelar</Button><Button onClick={()=>void removeSelectedOperation()} disabled={!selected||deleteConfirm.trim()!==selected.reference||actionBusy==="delete"} className="bg-[#D9563E] text-white hover:bg-[#C64732]">{actionBusy==="delete"?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:<Trash2 className="mr-2 h-4 w-4"/>}{actionBusy==="delete"?"Eliminando…":"Eliminar por completo"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
