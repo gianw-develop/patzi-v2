@@ -698,21 +698,27 @@ export function shortWallet(wallet: string) {
   return `${wallet.slice(0, 8)}…${wallet.slice(-6)}`;
 }
 
-async function downloadPrivateFile(bucket: string, path: string, name: string) {
+async function getPrivateFileUrl(bucket: string, path: string) {
   const supabase = createClient();
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 300);
+  if (error || !data?.signedUrl) return null;
+  return data.signedUrl;
+}
+
+async function downloadPrivateFile(bucket: string, path: string, name: string) {
   const preview = window.open("", "_blank");
   if (preview) {
     preview.document.title = `Abriendo ${name}`;
     preview.document.body.innerHTML = '<p style="font:16px system-ui;padding:24px;color:#071A2D">Abriendo documento privado…</p>';
   }
   try {
-    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 300);
-    if (error || !data?.signedUrl) {
+    const signedUrl = await getPrivateFileUrl(bucket, path);
+    if (!signedUrl) {
       preview?.close();
       return false;
     }
-    if (preview) preview.location.replace(data.signedUrl);
-    else window.location.assign(data.signedUrl);
+    if (preview) preview.location.replace(signedUrl);
+    else window.location.assign(signedUrl);
     return true;
   } catch {
     preview?.close();
@@ -726,4 +732,8 @@ export async function downloadStableDocument(document: StableDocument) {
 
 export async function downloadProof(proof: StableProof) {
   return downloadPrivateFile("stable-proofs", proof.path, proof.name);
+}
+
+export async function getProofPreviewUrl(proof: StableProof) {
+  return getPrivateFileUrl("stable-proofs", proof.path);
 }

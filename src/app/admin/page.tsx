@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { AssetChip, AssetMark, FlagMark, FlowCircuit } from "@/components/brand/FinancialMarks";
-import { downloadProof, formatUsd, shortWallet, STABLE_STATUS, type StableOperation, type StableStatus, useStableStore } from "@/lib/stable-store";
+import { formatUsd, getProofPreviewUrl, shortWallet, STABLE_STATUS, type StableOperation, type StableStatus, useStableStore } from "@/lib/stable-store";
 
 const verifiedStatuses: StableStatus[] = ["payment_received", "preparing", "completed"];
 
@@ -48,6 +48,7 @@ export default function AdminPage() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [decision, setDecision] = useState<{ operationId: string; type: "approve" | "reject" } | null>(null);
   const [decisionAmount, setDecisionAmount] = useState("");
+  const [proofPreviewUrl, setProofPreviewUrl] = useState("");
   const selected = operations.find((item) => item.id === selectedId) ?? operations[0];
   const selectedEligible = Boolean(selected?.customerStableEligible);
   const selectedKycVerified = selected?.customerKycStatus === "approved";
@@ -166,7 +167,14 @@ export default function AdminPage() {
     if (!selected?.proof || actionBusy) return;
     setActionBusy("proof");
     try {
-      if (!(await downloadProof(selected.proof))) toast.error("No se pudo abrir el comprobante privado.");
+      const signedUrl = await getProofPreviewUrl(selected.proof);
+      if (!signedUrl) {
+        toast.error("No se pudo cargar el comprobante privado.");
+        return;
+      }
+      setProofPreviewUrl(signedUrl);
+    } catch {
+      toast.error("No se pudo cargar el comprobante privado.");
     } finally {
       setActionBusy(null);
     }
@@ -301,7 +309,7 @@ export default function AdminPage() {
             <main className="min-w-0 space-y-4">
               <section className="premium-card overflow-hidden rounded-[1.6rem]">
                 <div className="relative z-10 flex flex-col justify-between gap-3 border-b border-[#071A2D]/8 p-5 sm:flex-row sm:items-center"><div><h2 className="text-base font-semibold">Pagos Stable</h2><p className="mt-1 flex items-center gap-2 text-xs font-medium text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#4DE2B5]"/>Más recientes arriba</p></div><div className="flex flex-wrap gap-2"><select aria-label="Filtrar por estado" value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los estados</option>{Object.entries(STABLE_STATUS).map(([value,info])=><option key={value} value={value}>{info.label}</option>)}</select><select aria-label="Filtrar por cuenta" value={accountFilter} onChange={(event)=>setAccountFilter(event.target.value)} className="max-w-[220px] rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todas las cuentas</option>{accounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select></div></div>
-                <div className="relative z-10 overflow-x-auto"><table className="w-full min-w-[860px] text-left text-sm"><thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Fecha","Referencia","Usuario Patzi / Remitente","Cuenta","Estado","Decisión"].map((heading)=><th key={heading} className="px-4 py-3 font-semibold">{heading}</th>)}</tr></thead><tbody>{filteredOperations.map((item)=>{const account=accounts.find((entry)=>entry.id===item.accountId);const canReview=Boolean(item.proof&&(["proof_submitted","verifying"].includes(item.status)||(item.status==="payment_received"&&item.bankReceivedAmount==null)));const approved=Boolean(item.bankReceivedAmount!=null&&verifiedStatuses.includes(item.status));return <tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-colors ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}><td className="whitespace-nowrap px-4 py-4"><p className="text-xs font-semibold">{formatExactDate(item.proof?.uploadedAt??item.createdAt)}</p><p className="mt-1 text-10px text-[#071A2D]/40">{item.proof?"Comprobante cargado":"Operación creada"}</p></td><td className="px-4 py-4 font-semibold">{item.reference}</td><td className="px-4 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[190px] truncate text-11px text-[#087F62]">{item.senderLegalName??"Sin remitente"}</p></td><td className="px-4 py-4"><p className="max-w-[190px] truncate font-medium">{account?.holder??"Cuenta no disponible"}</p><p className="mt-1 text-10px text-[#071A2D]/42">{account?.label??"—"} · {item.paymentRail}</p></td><td className="px-4 py-4"><StatusBadge status={item.status}/></td><td className="px-4 py-4" onClick={(event)=>event.stopPropagation()}>{canReview?<div className="flex items-center gap-2"><Button onClick={()=>openDecision(item,"approve")} disabled={Boolean(actionBusy)} className="h-9 bg-[#071A2D] px-3 text-11px font-semibold">Aprobar</Button><Button onClick={()=>openDecision(item,"reject")} disabled={Boolean(actionBusy)} variant="outline" className="h-9 border-[#D9563E]/20 px-3 text-11px font-semibold text-[#D9563E]">No aprobar</Button></div>:approved?<span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#087F62]"><CheckCircle2 className="h-4 w-4"/>Aprobado</span>:item.status==="correction_requested"?<span className="text-xs font-semibold text-[#D9563E]">No aprobado</span>:<button type="button" onClick={()=>setSelectedId(item.id)} className="text-xs font-semibold text-[#071A2D]/45">Ver detalle</button>}</td></tr>})}</tbody></table></div>
+                <div className="relative z-10 overflow-x-auto"><table className="w-full min-w-[860px] text-left text-sm"><thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Fecha","Referencia","Usuario Patzi / Remitente","Cuenta","Estado","Decisión"].map((heading)=><th key={heading} className="px-4 py-3 font-semibold">{heading}</th>)}</tr></thead><tbody>{filteredOperations.map((item)=>{const account=accounts.find((entry)=>entry.id===item.accountId);const canReview=Boolean(item.proof&&(["proof_submitted","verifying"].includes(item.status)||(item.status==="payment_received"&&item.bankReceivedAmount==null)));const approved=Boolean(item.bankReceivedAmount!=null&&verifiedStatuses.includes(item.status));return <tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-colors ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}><td className="whitespace-nowrap px-4 py-4"><p className="text-xs font-semibold">{formatExactDate(item.proof?.uploadedAt??item.createdAt)}</p><p className="mt-1 text-10px text-[#071A2D]/40">{item.proof?"Comprobante cargado":"Operación creada"}</p></td><td className="px-4 py-4 font-semibold">{item.reference}</td><td className="px-4 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[190px] truncate text-11px text-[#087F62]">{item.senderLegalName??"Sin remitente"}</p></td><td className="px-4 py-4"><p className="max-w-[190px] truncate font-medium">{account?.holder??"Cuenta no disponible"}</p><p className="mt-1 text-10px text-[#071A2D]/42">{account?.label??"—"} · {item.paymentRail}</p></td><td className="px-4 py-4"><StatusBadge status={item.status}/></td><td className="px-4 py-4" onClick={(event)=>event.stopPropagation()}>{canReview?<div className="flex items-center gap-2"><Button onClick={()=>openDecision(item,"approve")} disabled={Boolean(actionBusy)} className="h-9 bg-[#071A2D] px-3 text-11px font-semibold text-white shadow-sm hover:bg-[#0B263D]">Aprobar</Button><Button onClick={()=>openDecision(item,"reject")} disabled={Boolean(actionBusy)} variant="outline" className="h-9 border-[#D9563E]/20 px-3 text-11px font-semibold text-[#D9563E]">No aprobar</Button></div>:approved?<span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#087F62]"><CheckCircle2 className="h-4 w-4"/>Aprobado</span>:item.status==="correction_requested"?<span className="text-xs font-semibold text-[#D9563E]">No aprobado</span>:<button type="button" onClick={()=>setSelectedId(item.id)} className="text-xs font-semibold text-[#071A2D]/45">Ver detalle</button>}</td></tr>})}</tbody></table></div>
                 <div className="relative z-10 border-t border-[#071A2D]/8 p-3 text-xs text-[#071A2D]/40">{filteredOperations.length} operaciones · ordenadas por comprobante más reciente</div>
               </section>
 
@@ -345,6 +353,13 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+      <Dialog open={Boolean(proofPreviewUrl)} onOpenChange={(open)=>{if(!open)setProofPreviewUrl("")}}>
+        <DialogContent className="flex h-[min(90vh,900px)] w-[min(94vw,1000px)] max-w-none flex-col overflow-hidden rounded-3xl sm:max-w-none border-[#071A2D]/10 bg-white p-0 shadow-[0_30px_90px_rgba(7,26,45,.28)]">
+          <DialogHeader className="shrink-0 border-b border-[#071A2D]/8 px-5 py-4 pr-14 text-left"><DialogTitle>Comprobante · {selected?.reference}</DialogTitle><DialogDescription>{selected?.proof?.name} · documento privado</DialogDescription></DialogHeader>
+          {proofPreviewUrl&&<iframe src={proofPreviewUrl} title={`Comprobante ${selected?.reference??"Patzi"}`} className="min-h-0 flex-1 bg-[#F3F5F3]"/>}
+          <div className="flex shrink-0 justify-end border-t border-[#071A2D]/8 px-5 py-3"><Button type="button" onClick={()=>setProofPreviewUrl("")} className="bg-[#071A2D] text-white hover:bg-[#0B263D]">Cerrar comprobante</Button></div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={Boolean(decision)} onOpenChange={(open)=>{if(!open&&!actionBusy)setDecision(null)}}>
         <DialogContent className="rounded-3xl bg-white sm:max-w-md">
           <DialogHeader><DialogTitle>{decision?.type==="approve"?"Aprobar pago":"No aprobar pago"}</DialogTitle><DialogDescription>{decision?.type==="approve"?"Confirma cuánto llegó realmente al banco. La comisión Patzi se calcula sobre este monto.":"El cliente podrá corregir el comprobante y volver a enviarlo."}</DialogDescription></DialogHeader>
