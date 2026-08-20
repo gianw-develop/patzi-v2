@@ -337,7 +337,7 @@ function mapOperation(row: DbStableOperation): StableOperation {
     asset: row.asset,
     deliveryAmount: settlementDeliveryAmount ?? quotedDeliveryAmount,
     network: "Ethereum · ERC-20",
-    walletAddress: row.wallet_address,
+    walletAddress: row.wallet_address ?? "",
     paymentRail: row.payment_rail,
     accountId: row.receiving_account_id,
     status: row.status,
@@ -694,8 +694,8 @@ export function formatUsd(value: number) {
   }).format(value);
 }
 
-export function shortWallet(wallet: string) {
-  return `${wallet.slice(0, 8)}…${wallet.slice(-6)}`;
+export function shortWallet(wallet?: string | null) {
+  return wallet ? `${wallet.slice(0, 8)}…${wallet.slice(-6)}` : "Wallet guardada en el perfil";
 }
 
 async function getPrivateFileUrl(bucket: string, path: string) {
