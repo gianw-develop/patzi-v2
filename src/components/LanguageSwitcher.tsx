@@ -6,9 +6,9 @@ import { cn } from "@/lib/utils";
 
 export default function LanguageSwitcher({ inverse = false, compact = false }: { inverse?: boolean; compact?: boolean }) {
   const { language, setLanguage } = useLanguage();
-  const options: Array<{ code: Language; label: string; country: "ES" | "GB" }> = [
+  const options: Array<{ code: Language; label: string; country: "ES" | "US" }> = [
     { code: "es", label: "ES", country: "ES" },
-    { code: "en", label: "EN", country: "GB" },
+    { code: "en", label: "EN", country: "US" },
   ];
 
   return (
