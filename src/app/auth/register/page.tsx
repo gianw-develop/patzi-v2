@@ -19,6 +19,8 @@ export default function RegisterPage() {
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [website, setWebsite] = useState("");
+  const [startedAt] = useState(() => Date.now());
   const { setUser } = useUserStore();
   const update = (field: string, value: string) => setForm((previous) => ({ ...previous, [field]: value }));
 
@@ -30,7 +32,27 @@ export default function RegisterPage() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    const normalizedName = form.full_name.trim().replace(/\s+/g, " ");
+    const phoneDigits = form.phone.replace(/\D/g, "");
+    const realName = /^[\p{L}][\p{L}'’.-]+(?:\s+[\p{L}][\p{L}'’.-]+)+$/u.test(normalizedName);
+
+    if (website || Date.now() - startedAt < 2500) {
+      toast.error("No pudimos validar el registro. Inténtalo nuevamente.");
+      return;
+    }
+    if (!realName || normalizedName.length < 5 || normalizedName.length > 100) {
+      toast.error("Introduce tu nombre y apellido reales.");
+      return;
+    }
+    if (phoneDigits.length < 8 || phoneDigits.length > 15) {
+      toast.error("Introduce un teléfono válido.");
+      return;
+    }
     if (form.password !== form.confirm_password) { toast.error("Las contraseñas no coinciden"); return; }
+    if (form.password.length < 10 || strength < 4 || !/[a-z]/.test(form.password)) {
+      toast.error("Usa al menos 10 caracteres, mayúscula, minúscula, número y símbolo.");
+      return;
+    }
     if (!agreed) { toast.error("Debes aceptar los términos y condiciones"); return; }
     setLoading(true);
 
@@ -99,14 +121,18 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="mt-7 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <label><span className="text-[11px] font-semibold">{t("Nombre completo")}</span><div className={inputShell}><UserRound className="h-4 w-4 text-[#071A2D]/32"/><input id="full_name" autoComplete="name" placeholder="María García" value={form.full_name} onChange={(event)=>update("full_name",event.target.value)} required className={input}/></div></label>
-              <label><span className="text-[11px] font-semibold">{t("Teléfono")} <span className="font-normal text-[#071A2D]/35">{t("(opcional)")}</span></span><div className={inputShell}><Phone className="h-4 w-4 text-[#071A2D]/32"/><input id="phone" type="tel" autoComplete="tel" placeholder="+34 612 345 678" value={form.phone} onChange={(event)=>update("phone",event.target.value)} className={input}/></div></label>
+              <label><span className="text-[11px] font-semibold">{t("Nombre completo")}</span><div className={inputShell}><UserRound className="h-4 w-4 text-[#071A2D]/32"/><input id="full_name" autoComplete="name" placeholder="María García" value={form.full_name} onChange={(event)=>update("full_name",event.target.value)} required minLength={5} maxLength={100} className={input}/></div></label>
+              <label><span className="text-[11px] font-semibold">{t("Teléfono")}</span><div className={inputShell}><Phone className="h-4 w-4 text-[#071A2D]/32"/><input id="phone" type="tel" autoComplete="tel" placeholder="+34 612 345 678" value={form.phone} onChange={(event)=>update("phone",event.target.value)} required minLength={8} maxLength={24} pattern="[+0-9() .-]{8,24}" className={input}/></div></label>
             </div>
 
+            <div className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+              <label htmlFor="website">Website</label>
+              <input id="website" name="website" tabIndex={-1} autoComplete="off" value={website} onChange={(event)=>setWebsite(event.target.value)}/>
+            </div>
             <label className="block"><span className="text-[11px] font-semibold">{t("Correo electrónico")}</span><div className={inputShell}><Mail className="h-4 w-4 text-[#071A2D]/32"/><input id="email" type="email" autoComplete="email" placeholder="tu@email.com" value={form.email} onChange={(event)=>update("email",event.target.value)} required className={input}/></div></label>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <label><span className="text-[11px] font-semibold">{t("Contraseña")}</span><div className={inputShell}><LockKeyhole className="h-4 w-4 text-[#071A2D]/32"/><input id="password" type={showPass?"text":"password"} autoComplete="new-password" placeholder={t("Mínimo 8 caracteres")} value={form.password} onChange={(event)=>update("password",event.target.value)} required minLength={8} className={input}/><button type="button" onClick={()=>setShowPass(!showPass)} className="text-[#071A2D]/35" aria-label={showPass?"Ocultar contraseña":"Mostrar contraseña"}>{showPass?<EyeOff className="h-4 w-4"/>:<Eye className="h-4 w-4"/>}</button></div></label>
+              <label><span className="text-[11px] font-semibold">{t("Contraseña")}</span><div className={inputShell}><LockKeyhole className="h-4 w-4 text-[#071A2D]/32"/><input id="password" type={showPass?"text":"password"} autoComplete="new-password" placeholder={t("Mínimo 10 caracteres")} value={form.password} onChange={(event)=>update("password",event.target.value)} required minLength={10} className={input}/><button type="button" onClick={()=>setShowPass(!showPass)} className="text-[#071A2D]/35" aria-label={showPass?"Ocultar contraseña":"Mostrar contraseña"}>{showPass?<EyeOff className="h-4 w-4"/>:<Eye className="h-4 w-4"/>}</button></div></label>
               <label><span className="text-[11px] font-semibold">{t("Confirmar contraseña")}</span><div className={`${inputShell} ${form.confirm_password&&form.password!==form.confirm_password?"border-[#FF765B]":""}`}><LockKeyhole className="h-4 w-4 text-[#071A2D]/32"/><input id="confirm_password" type="password" autoComplete="new-password" placeholder={t("Repite tu contraseña")} value={form.confirm_password} onChange={(event)=>update("confirm_password",event.target.value)} required className={input}/>{form.confirm_password&&form.password===form.confirm_password&&<CheckCircle2 className="h-4 w-4 text-[#0AA883]"/>}</div></label>
             </div>
 
