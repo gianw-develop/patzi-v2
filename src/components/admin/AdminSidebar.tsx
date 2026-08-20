@@ -32,7 +32,7 @@ export default function AdminSidebar() {
     const supabase = createClient();
     await supabase.auth.signOut();
     clearUser();
-    toast.success("Sesión cerrada");
+    toast.success(t("Sesión cerrada"));
     close();
     router.replace("/auth/login");
     router.refresh();
@@ -54,7 +54,7 @@ export default function AdminSidebar() {
             );
           })}
         </nav>
-        <div className="m-3 rounded-2xl border border-[#0AA883]/16 bg-[#EAF8F3] p-3 text-[11px] text-[#071A2D]/55 shadow-sm"><div className="mb-1 flex items-center gap-2 font-semibold text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#0AA883] shadow-[0_0_0_4px_rgba(10,168,131,.12)]" />Sistema operativo</div>Todos los servicios disponibles.</div>
+        <div className="m-3 rounded-2xl border border-[#0AA883]/16 bg-[#EAF8F3] p-3 text-[11px] text-[#071A2D]/55 shadow-sm"><div className="mb-1 flex items-center gap-2 font-semibold text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#0AA883] shadow-[0_0_0_4px_rgba(10,168,131,.12)]" />{t("Sistema operativo")}</div>{t("Todos los servicios disponibles.")}</div>
         <div className="border-t border-[#071A2D]/8 p-3"><button onClick={logout} className="pathline-nav-item w-full"><LogOut className="h-4 w-4" />{t("Cerrar sesión")}</button></div>
       </aside>
     </>

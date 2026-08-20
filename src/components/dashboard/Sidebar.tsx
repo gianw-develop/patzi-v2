@@ -34,7 +34,7 @@ export default function Sidebar() {
     const supabase = createClient();
     await supabase.auth.signOut();
     clearUser();
-    toast.success("Sesión cerrada");
+    toast.success(t("Sesión cerrada"));
     close();
     router.replace("/auth/login");
     router.refresh();
@@ -62,7 +62,7 @@ export default function Sidebar() {
         <div className="border-t border-white/10 p-4">
           <div className="mb-3 flex items-center gap-3 rounded-2xl bg-white/[0.06] p-3">
             <div className="grid h-9 w-9 place-items-center rounded-full bg-[#4DE2B5] font-black text-[#071A2D]">{full_name?.[0]?.toUpperCase() || "G"}</div>
-            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-white">{full_name || "Gian"}</p><p className="truncate text-[11px] text-white/50">{email || "Cliente verificado"}</p></div>
+            <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-white">{full_name || "Gian"}</p><p className="truncate text-[11px] text-white/50">{email || t("Cliente verificado")}</p></div>
           </div>
           <button onClick={logout} className="pathline-nav-item w-full"><LogOut className="h-[18px] w-[18px]" />{t("Cerrar sesión")}</button>
         </div>

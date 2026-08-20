@@ -8,6 +8,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase";
+import { useLanguage } from "@/lib/i18n";
 
 interface NotificationItem {
   id: string;
@@ -19,6 +20,7 @@ interface NotificationItem {
 }
 
 export default function DashboardNotifications({ admin, label }: { admin: boolean; label: string }) {
+  const { t } = useLanguage();
   const [items, setItems] = useState<NotificationItem[]>([]);
 
   const load = useCallback(async () => {
@@ -62,6 +64,6 @@ export default function DashboardNotifications({ admin, label }: { admin: boolea
 
   return <DropdownMenu>
     <DropdownMenuTrigger asChild><button className="relative grid h-10 w-10 place-items-center rounded-xl border border-[#071A2D]/10 bg-white" aria-label={label}><Bell className="h-4 w-4" />{total > 0 && <span className="absolute right-1.5 top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#FF765B] px-1 text-[8px] font-bold text-white">{Math.min(total, 99)}</span>}</button></DropdownMenuTrigger>
-    <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-1.5rem))] rounded-2xl p-2 shadow-xl"><DropdownMenuLabel className="flex items-center justify-between px-3 py-2"><span>Notificaciones</span><button type="button" onClick={() => void load()} className="text-xs font-medium text-[#087F62]">Actualizar</button></DropdownMenuLabel><DropdownMenuSeparator />{items.length === 0 ? <div className="px-3 py-8 text-center"><CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-emerald-500" /><p className="text-sm font-medium">Todo al día</p><p className="mt-1 text-xs text-slate-500">No hay acciones pendientes.</p></div> : items.map((item) => <DropdownMenuItem key={item.id} asChild className="rounded-xl p-0"><Link href={item.href} className="flex items-start gap-3 px-3 py-3"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#E7FAF3] text-[#087F62]"><item.icon className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{item.label}</p><span className="rounded-full bg-[#071A2D] px-2 py-0.5 text-[10px] font-bold text-white">{item.count}</span></div><p className="mt-1 truncate text-xs text-slate-500">{item.description}</p></div></Link></DropdownMenuItem>)}</DropdownMenuContent>
+    <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-1.5rem))] rounded-2xl p-2 shadow-xl"><DropdownMenuLabel className="flex items-center justify-between px-3 py-2"><span>{t("Notificaciones")}</span><button type="button" onClick={() => void load()} className="text-xs font-medium text-[#087F62]">{t("Actualizar")}</button></DropdownMenuLabel><DropdownMenuSeparator />{items.length === 0 ? <div className="px-3 py-8 text-center"><CheckCircle2 className="mx-auto mb-2 h-7 w-7 text-emerald-500" /><p className="text-sm font-medium">{t("Todo al día")}</p><p className="mt-1 text-xs text-slate-500">{t("No hay acciones pendientes.")}</p></div> : items.map((item) => <DropdownMenuItem key={item.id} asChild className="rounded-xl p-0"><Link href={item.href} className="flex items-start gap-3 px-3 py-3"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#E7FAF3] text-[#087F62]"><item.icon className="h-4 w-4" /></div><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{t(item.label)}</p><span className="rounded-full bg-[#071A2D] px-2 py-0.5 text-[10px] font-bold text-white">{item.count}</span></div><p className="mt-1 truncate text-xs text-slate-500">{t(item.description)}</p></div></Link></DropdownMenuItem>)}</DropdownMenuContent>
   </DropdownMenu>;
 }

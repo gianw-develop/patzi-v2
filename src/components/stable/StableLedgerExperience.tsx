@@ -213,7 +213,7 @@ export default function StableLedgerExperience() {
 
       {documentsOperation&&<Modal onClose={()=>setDocumentsOperation(null)} width="max-w-2xl"><ModalTitle title={t("Factura y contrato")} subtitle={`${documentsOperation.reference} · ${t("documentos privados")}`} onClose={()=>setDocumentsOperation(null)}/><div className="p-5"><LedgerOperationDocuments operationId={documentsOperation.id} userId={documentsOperation.userId}/></div></Modal>}
 
-      {preview&&<Modal onClose={()=>setPreview(null)} width="max-w-4xl"><ModalTitle title={preview.proof.name} subtitle={t("Comprobante privado")} onClose={()=>setPreview(null)}/><div className="h-[75vh] bg-[#EDF1EE] p-3">{preview.proof.mimeType==="application/pdf"?<iframe title="Comprobante" src={preview.url} className="h-full w-full rounded-xl bg-white"/>:<img src={preview.url} alt="Comprobante" className="mx-auto h-full max-w-full rounded-xl object-contain"/>}</div></Modal>}
+      {preview&&<Modal onClose={()=>setPreview(null)} width="max-w-4xl"><ModalTitle title={preview.proof.name} subtitle={t("Comprobante privado")} onClose={()=>setPreview(null)}/><div className="h-[75vh] bg-[#EDF1EE] p-3">{preview.proof.mimeType==="application/pdf"?<iframe title={t("Comprobante")} src={preview.url} className="h-full w-full rounded-xl bg-white"/>:<img src={preview.url} alt={t("Comprobante")} className="mx-auto h-full max-w-full rounded-xl object-contain"/>}</div></Modal>}
     </>
   );
 }
