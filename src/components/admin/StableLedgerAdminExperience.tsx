@@ -1,15 +1,16 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Check, CheckCircle2, FileText, LoaderCircle, Search,
+  Check, CheckCircle2, CircleDashed, FileText, LoaderCircle, Search,
   Upload, WalletCards, X, XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import Header from "@/components/dashboard/Header";
 import LedgerOperationDocuments from "@/components/stable/LedgerOperationDocuments";
 import { useLanguage } from "@/lib/i18n";
+import { createClient } from "@/lib/supabase";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +19,9 @@ import {
 } from "@/lib/stable-ledger-store";
 
 const HISTORICAL_IMPORT_NOTE = "Importación histórica autorizada por administración";
+
+type DocumentType = "invoice" | "contract";
+type DocumentPresence = Record<string, Partial<Record<DocumentType, true>>>;
 
 const inputClass = "h-11 w-full rounded-xl border border-[#071A2D]/10 bg-white px-3.5 text-sm font-medium shadow-sm outline-none transition focus:border-[#0AA883] focus:ring-4 focus:ring-[#0AA883]/8";
 
@@ -38,6 +42,13 @@ function Status({ operation }: { operation: LedgerOperation }) {
   return <span className="rounded-full bg-blue-50 px-3 py-1.5 text-[10px] font-semibold text-blue-700">{t("Comprobante enviado")}</span>;
 }
 
+function DocumentBadge({ type, present }: { type: DocumentType; present: boolean }) {
+  const { t } = useLanguage();
+  const label = t(type === "invoice" ? "Factura" : "Contrato");
+  return <span className={`inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${present ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`} title={t(present ? "Documento cargado" : "Documento pendiente")}>
+    {present ? <CheckCircle2 className="h-3.5 w-3.5"/> : <CircleDashed className="h-3.5 w-3.5"/>}{label}
+  </span>;
+}
 export default function StableLedgerAdminExperience() {
   const { t, language } = useLanguage();
   const {
@@ -46,6 +57,11 @@ export default function StableLedgerAdminExperience() {
   } = useStableLedgerStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [companyFilter, setCompanyFilter] = useState("all");
+  const [bankFilter, setBankFilter] = useState("all");
+  const [documentFilter, setDocumentFilter] = useState("all");
+  const [documentPresence, setDocumentPresence] = useState<DocumentPresence>({});
+  const [documentsReady, setDocumentsReady] = useState(false);
   const [review, setReview] = useState<LedgerOperation | null>(null);
   const [actualReceived, setActualReceived] = useState("");
   const [rejecting, setRejecting] = useState<LedgerOperation | null>(null);
@@ -59,11 +75,33 @@ export default function StableLedgerAdminExperience() {
   const [payoutRequestId, setPayoutRequestId] = useState("");
   const [busy, setBusy] = useState("");
 
+  const loadDocumentPresence = useCallback(async () => {
+    const supabase = createClient();
+    const { data, error: documentError } = await supabase
+      .from("stable_operation_documents")
+      .select("operation_id,document_type");
+    if (documentError) throw documentError;
+    const next: DocumentPresence = {};
+    for (const document of data ?? []) {
+      if (document.document_type !== "invoice" && document.document_type !== "contract") continue;
+      next[document.operation_id] = { ...next[document.operation_id], [document.document_type]: true };
+    }
+    setDocumentPresence(next);
+    setDocumentsReady(true);
+  }, []);
+
   useEffect(() => {
-    void load("admin");
-    const interval = window.setInterval(() => void load("admin"), 15_000);
+    const refresh = () => {
+      void load("admin");
+      void loadDocumentPresence().catch((documentError) => {
+        setDocumentsReady(false);
+        toast.error(documentError instanceof Error ? documentError.message : t("No se pudieron cargar los documentos."));
+      });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 15_000);
     return () => window.clearInterval(interval);
-  }, [load]);
+  }, [load, loadDocumentPresence, t]);
 
   const totals = useMemo(() => {
     const approved = operations.filter((item)=>["payment_received","preparing","completed"].includes(item.status)&&item.bankReceivedAmount!=null);
@@ -85,12 +123,23 @@ export default function StableLedgerAdminExperience() {
   const selectedBalance = selectedClient?balanceFor(operations,payouts,selectedClient.id):{credited:0,paid:0,available:0};
   const selectedPendingRequests = payoutRequests.filter((item)=>item.userId===selectedClient?.id&&item.status==="pending");
 
+  const companyOptions = useMemo(() => [...new Set(accounts.map((account) => account.holder).filter(Boolean))].sort((a,b)=>a.localeCompare(b)), [accounts]);
+  const bankOptions = useMemo(() => [...new Set(accounts.map((account) => account.bank).filter(Boolean))].sort((a,b)=>a.localeCompare(b)), [accounts]);
+
   const rows = operations.filter((item)=>{
+    const account=accounts.find((value)=>value.id===item.accountId);
+    const documents=documentPresence[item.id]??{};
     const needle=search.trim().toLowerCase();
-    const matches=!needle||[item.reference,item.userName,item.senderName,item.senderEmail,item.senderBank].some((value)=>value.toLowerCase().includes(needle));
+    const matches=!needle||[item.reference,item.userName,item.senderName,item.senderEmail,item.senderBank,account?.holder,account?.bank].some((value)=>value?.toLowerCase().includes(needle));
     const status=statusFilter==="all"||(statusFilter==="pending"&&["proof_submitted","verifying","correction_requested"].includes(item.status))||(statusFilter==="approved"&&["payment_received","preparing","completed"].includes(item.status))||(statusFilter==="rejected"&&item.status==="blocked");
-    return matches&&status;
+    const company=companyFilter==="all"||account?.holder===companyFilter;
+    const bank=bankFilter==="all"||account?.bank===bankFilter;
+    const documentStatus=documentFilter==="all"||!documentsReady||(documentFilter==="complete"&&documents.invoice&&documents.contract)||(documentFilter==="missing_any"&&(!documents.invoice||!documents.contract))||(documentFilter==="missing_invoice"&&!documents.invoice)||(documentFilter==="missing_contract"&&!documents.contract)||(documentFilter==="none"&&!documents.invoice&&!documents.contract);
+    return matches&&status&&company&&bank&&documentStatus;
   });
+
+  const filtersActive = Boolean(search.trim()||statusFilter!=="all"||companyFilter!=="all"||bankFilter!=="all"||documentFilter!=="all");
+  const clearFilters = () => { setSearch(""); setStatusFilter("all"); setCompanyFilter("all"); setBankFilter("all"); setDocumentFilter("all"); };
 
   const actual = Number(actualReceived);
   const validActual = Boolean(review&&Number.isFinite(actual)&&actual>0&&actual<=review.declaredAmount);
@@ -137,9 +186,21 @@ export default function StableLedgerAdminExperience() {
     <main className="pathline-grid flex-1 bg-[#F5F7F2] p-4 sm:p-6 xl:p-8"><div className="mx-auto max-w-[1560px] space-y-5">
       {error&&<div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       <section className="grid gap-3 rounded-[1.5rem] border border-[#071A2D]/7 bg-white p-4 shadow-[0_18px_45px_rgba(7,26,45,.06)] sm:grid-cols-5 sm:p-5">{[["USD recibido",formatMoney(totals.received)],["Comisión Patzi 10%",formatMoney(totals.fee)],["USDT generado",formatUsdt(totals.generated)],["USDT pagado",formatUsdt(totals.paid)],["Saldo pendiente",formatUsdt(totals.pending)]].map(([label,value],index)=><div key={label} className={`rounded-xl px-3 py-3 ${index===4?"bg-[#E7FAF3]":"bg-[#F8FAF8]"}`}><p className="text-[10px] font-semibold text-[#071A2D]/42">{t(label)}</p><p className={`mt-2 text-lg font-semibold ${index===4?"text-[#087F62]":""}`}>{value}</p></div>)}</section>
-
-      <section className="overflow-hidden rounded-[1.6rem] border border-[#071A2D]/7 bg-white shadow-[0_18px_45px_rgba(7,26,45,.06)]"><div className="flex flex-col justify-between gap-3 border-b border-[#071A2D]/7 p-5 sm:flex-row sm:items-center"><div><h2 className="text-lg font-semibold">{t("Revisión de depósitos")}</h2><p className="mt-1 text-xs text-[#087F62]">{t("Más recientes arriba")}</p></div><div className="flex flex-col gap-2 sm:flex-row"><label className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#071A2D]/35"/><input value={search} onChange={(e)=>setSearch(e.target.value)} className={`${inputClass} pl-9 sm:w-64`} placeholder={t("Cliente, remitente o referencia")}/></label><select value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value)} className={inputClass}><option value="all">{t("Todos los estados")}</option><option value="pending">{t("Por revisar")}</option><option value="approved">{t("Aprobados")}</option><option value="rejected">{t("No aprobados")}</option></select></div></div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[1040px] text-left"><thead className="bg-[#F7F9F7] text-[10px] uppercase tracking-[.12em] text-[#071A2D]/42"><tr>{["Fecha","Usuario Patzi / Quién envía","Cuenta receptora Patzi","Monto declarado","Comprobante","Estado","Acciones"].map((heading)=><th key={heading} className="px-4 py-3 font-semibold">{t(heading)}</th>)}</tr></thead><tbody>{rows.map((item)=>{const account=accounts.find((value)=>value.id===item.accountId);const reviewable=Boolean((item.proof||item.adminNote===HISTORICAL_IMPORT_NOTE)&&["proof_submitted","verifying","correction_requested"].includes(item.status));return <tr key={item.id} className="border-t border-[#071A2D]/6 text-sm"><td className="whitespace-nowrap px-4 py-4"><b>{new Date(`${item.depositDate}T12:00:00`).toLocaleDateString(language === "en" ? "en-US" : "es-ES",{day:"2-digit",month:"short",year:"numeric"})}</b><p className="mt-1 text-[10px] text-[#071A2D]/40">{item.reference}</p></td><td className="px-4 py-4"><b>{item.userName}</b><p className="mt-1 text-xs text-[#087F62]">{item.senderName}</p><p className="mt-1 text-[10px] text-[#071A2D]/42">{item.senderEmail} · {item.senderPhone}</p></td><td className="px-4 py-4"><b>{account?.holder??"—"}</b><p className="mt-1 text-xs text-[#071A2D]/45">{account?.bank} · {account?.accountNumber.slice(-4)} · {item.paymentRail}</p></td><td className="px-4 py-4"><b>{formatMoney(item.declaredAmount)}</b><p className={`mt-1 text-xs ${item.bankReceivedAmount==null?"text-amber-600":"text-[#087F62]"}`}>{item.bankReceivedAmount==null?t("Banco: pendiente"):`${t("Banco")}: ${formatMoney(item.bankReceivedAmount)}`}</p></td><td className="px-4 py-4">{item.proof?<button onClick={()=>void showProof(item.proof!)} className="inline-flex items-center gap-2 rounded-lg border border-[#071A2D]/8 px-3 py-2 text-xs font-semibold"><FileText className="h-4 w-4 text-[#D9563E]"/>{t("Ver")}</button>:item.adminNote===HISTORICAL_IMPORT_NOTE?<span className="rounded-full bg-violet-50 px-2.5 py-1.5 text-[10px] font-semibold text-violet-700">{t("Registro histórico")}</span>:<span className="text-xs text-[#071A2D]/38">{t("No cargado")}</span>}</td><td className="px-4 py-4"><Status operation={item}/></td><td className="px-4 py-4">{reviewable?<div className="flex gap-2"><Button onClick={()=>{setReview(item);setActualReceived(String(item.bankReceivedAmount??item.declaredAmount));}} className="h-9 bg-[#0AA883] px-3 text-xs text-white"><Check className="mr-1.5 h-4 w-4"/>{t("Aprobar")}</Button><Button variant="outline" onClick={()=>setRejecting(item)} className="h-9 border-red-200 px-3 text-xs text-red-600">{t("No aprobar")}</Button></div>:(["payment_received","preparing","completed"].includes(item.status)?<Button variant="outline" onClick={()=>setDocumentsOperation(item)} className="h-9 px-3 text-xs"><FileText className="mr-1.5 h-4 w-4"/>{t("Documentos")}</Button>:<span className="text-xs text-[#071A2D]/38">{t("Decidido")}</span>)}</td></tr>})}{rows.length===0&&<tr><td colSpan={7} className="px-6 py-12 text-center text-sm text-[#071A2D]/45">{t("No hay depósitos para este filtro.")}</td></tr>}</tbody></table></div>
+      <section className="overflow-hidden rounded-[1.6rem] border border-[#071A2D]/7 bg-white shadow-[0_18px_45px_rgba(7,26,45,.06)]">
+        <div className="border-b border-[#071A2D]/7 p-5">
+          <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+            <div><h2 className="text-lg font-semibold">{t("Revisión de depósitos")}</h2><p className="mt-1 text-xs text-[#087F62]">{t("Más recientes arriba")}</p></div>
+            <label className="relative w-full lg:max-w-sm"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#071A2D]/35"/><input value={search} onChange={(e)=>setSearch(e.target.value)} className={`${inputClass} pl-9`} placeholder={t("Cliente, remitente o referencia")}/></label>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <select aria-label={t("Filtrar por estado")} value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value)} className={inputClass}><option value="all">{t("Todos los estados")}</option><option value="pending">{t("Por revisar")}</option><option value="approved">{t("Aprobados")}</option><option value="rejected">{t("No aprobados")}</option></select>
+            <select aria-label={t("Filtrar por empresa")} value={companyFilter} onChange={(e)=>setCompanyFilter(e.target.value)} className={inputClass}><option value="all">{t("Todas las empresas")}</option>{companyOptions.map((company)=><option key={company} value={company}>{company}</option>)}</select>
+            <select aria-label={t("Filtrar por banco")} value={bankFilter} onChange={(e)=>setBankFilter(e.target.value)} className={inputClass}><option value="all">{t("Todos los bancos")}</option>{bankOptions.map((bank)=><option key={bank} value={bank}>{bank}</option>)}</select>
+            <select aria-label={t("Filtrar por documentos")} disabled={!documentsReady} value={documentFilter} onChange={(e)=>setDocumentFilter(e.target.value)} className={`${inputClass} disabled:cursor-wait disabled:opacity-55`}><option value="all">{t("Todos los documentos")}</option><option value="complete">{t("Factura y contrato cargados")}</option><option value="missing_any">{t("Falta algún documento")}</option><option value="missing_invoice">{t("Falta factura")}</option><option value="missing_contract">{t("Falta contrato")}</option><option value="none">{t("Sin documentos")}</option></select>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-[#071A2D]/45"><span>{language === "en" ? `${rows.length} of ${operations.length} deposits` : `${rows.length} de ${operations.length} depósitos`}</span>{filtersActive&&<button type="button" onClick={clearFilters} className="font-semibold text-[#087F62] transition hover:text-[#071A2D]">{t("Limpiar filtros")}</button>}</div>
+        </div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[1220px] text-left"><thead className="bg-[#F7F9F7] text-[10px] uppercase tracking-[.12em] text-[#071A2D]/42"><tr>{["Fecha","Usuario Patzi / Quién envía","Cuenta receptora Patzi","Monto declarado","Comprobante","Estado","Documentos","Acciones"].map((heading)=><th key={heading} className="px-4 py-3 font-semibold">{t(heading)}</th>)}</tr></thead><tbody>{rows.map((item)=>{const account=accounts.find((value)=>value.id===item.accountId);const documents=documentPresence[item.id]??{};const reviewable=Boolean((item.proof||item.adminNote===HISTORICAL_IMPORT_NOTE)&&["proof_submitted","verifying","correction_requested"].includes(item.status));return <tr key={item.id} className="border-t border-[#071A2D]/6 text-sm"><td className="whitespace-nowrap px-4 py-4"><b>{new Date(`${item.depositDate}T12:00:00`).toLocaleDateString(language === "en" ? "en-US" : "es-ES",{day:"2-digit",month:"short",year:"numeric"})}</b><p className="mt-1 text-[10px] text-[#071A2D]/40">{item.reference}</p></td><td className="px-4 py-4"><b>{item.userName}</b><p className="mt-1 text-xs text-[#087F62]">{item.senderName}</p><p className="mt-1 text-[10px] text-[#071A2D]/42">{item.senderEmail} · {item.senderPhone}</p></td><td className="px-4 py-4"><b>{account?.holder??"—"}</b><p className="mt-1 text-xs text-[#071A2D]/45">{account?.bank} · {account?.accountNumber.slice(-4)} · {item.paymentRail}</p></td><td className="px-4 py-4"><b>{formatMoney(item.declaredAmount)}</b><p className={`mt-1 text-xs ${item.bankReceivedAmount==null?"text-amber-600":"text-[#087F62]"}`}>{item.bankReceivedAmount==null?t("Banco: pendiente"):`${t("Banco")}: ${formatMoney(item.bankReceivedAmount)}`}</p></td><td className="px-4 py-4">{item.proof?<button onClick={()=>void showProof(item.proof!)} className="inline-flex items-center gap-2 rounded-lg border border-[#071A2D]/8 px-3 py-2 text-xs font-semibold"><FileText className="h-4 w-4 text-[#D9563E]"/>{t("Ver")}</button>:item.adminNote===HISTORICAL_IMPORT_NOTE?<span className="rounded-full bg-violet-50 px-2.5 py-1.5 text-[10px] font-semibold text-violet-700">{t("Registro histórico")}</span>:<span className="text-xs text-[#071A2D]/38">{t("No cargado")}</span>}</td><td className="px-4 py-4"><Status operation={item}/></td><td className="px-4 py-4">{documentsReady?<div className="flex min-w-[150px] flex-col gap-1.5"><DocumentBadge type="invoice" present={Boolean(documents.invoice)}/><DocumentBadge type="contract" present={Boolean(documents.contract)}/></div>:<div className="h-12 w-32 animate-pulse rounded-xl bg-[#071A2D]/5"/>}</td><td className="px-4 py-4">{reviewable?<div className="flex gap-2"><Button onClick={()=>{setReview(item);setActualReceived(String(item.bankReceivedAmount??item.declaredAmount));}} className="h-9 bg-[#0AA883] px-3 text-xs text-white"><Check className="mr-1.5 h-4 w-4"/>{t("Aprobar")}</Button><Button variant="outline" onClick={()=>setRejecting(item)} className="h-9 border-red-200 px-3 text-xs text-red-600">{t("No aprobar")}</Button></div>:(["payment_received","preparing","completed"].includes(item.status)?<Button variant="outline" onClick={()=>setDocumentsOperation(item)} className="h-9 px-3 text-xs"><FileText className="mr-1.5 h-4 w-4"/>{t("Documentos")}</Button>:<span className="text-xs text-[#071A2D]/38">{t("Decidido")}</span>)}</td></tr>})}{rows.length===0&&<tr><td colSpan={8} className="px-6 py-12 text-center text-sm text-[#071A2D]/45">{t("No hay depósitos para este filtro.")}</td></tr>}</tbody></table></div>
       </section>
 
       <section className="rounded-[1.6rem] border border-[#071A2D]/7 bg-white p-5 shadow-[0_18px_45px_rgba(7,26,45,.05)]"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><p className="premium-kicker text-[#087F62]">{t("Tesorería USDT")}</p><h2 className="mt-1 text-xl font-semibold">{t("Abonos y saldos de clientes")}</h2></div><Button onClick={()=>openPayout()} disabled={clients.length===0} className="h-11 bg-[#071A2D] text-white">{t("Registrar abono USDT")}</Button></div><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm"><thead className="text-[10px] uppercase tracking-[.12em] text-[#071A2D]/42"><tr>{["Cliente","Wallet USDT","Saldo disponible","Solicitud pendiente","Acción"].map((h)=><th key={h} className="px-3 py-2 font-semibold">{t(h)}</th>)}</tr></thead><tbody>{clients.map((client)=>{const wallet=wallets.find((item)=>item.userId===client.id);const balance=balanceFor(operations,payouts,client.id);const request=payoutRequests.find((item)=>item.userId===client.id&&item.status==="pending");return <tr key={client.id} className="border-t border-[#071A2D]/6"><td className="px-3 py-3"><b>{client.name}</b><p className="text-xs text-[#071A2D]/42">{client.email}</p></td><td className="px-3 py-3">{wallet?<><span className="font-mono text-xs">{maskWallet(wallet.address)}</span><button onClick={()=>void verifyWallet(client.id,!wallet.verified).then(()=>toast.success(wallet.verified?t("Wallet marcada como pendiente"):t("Wallet verificada"))).catch((e)=>toast.error(e instanceof Error?e.message:t("No se pudo actualizar")))} className={`ml-2 rounded-full px-2 py-1 text-[9px] font-semibold ${wallet.verified?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-700"}`}>{wallet.verified?t("Verificada"):t("Verificar")}</button></>:<span className="text-xs text-[#071A2D]/38">{t("Sin wallet")}</span>}</td><td className="px-3 py-3 font-semibold text-[#087F62]">{formatUsdt(balance.available)}</td><td className="px-3 py-3">{request?<span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">{formatUsdt(request.amount)}</span>:<span className="text-xs text-[#071A2D]/38">—</span>}</td><td className="px-3 py-3"><Button onClick={()=>openPayout(client.id,request?.id,request?.amount)} disabled={!wallet?.verified||balance.available<=0} variant="outline" className="h-9 text-xs">{t("Abonar")}</Button></td></tr>})}</tbody></table></div>
@@ -153,7 +214,7 @@ export default function StableLedgerAdminExperience() {
 
     {payoutOpen&&<Modal onClose={()=>setPayoutOpen(false)} width="max-w-2xl"><ModalHeader title={t("Registrar abono USDT")} subtitle={t("El comprobante quedará disponible para el cliente.")} onClose={()=>setPayoutOpen(false)}/><form onSubmit={submitPayout} className="grid gap-4 p-5 sm:grid-cols-2"><label className="text-xs font-semibold">{t("Cliente")}<select value={selectedClient?.id??""} onChange={(e)=>{setPayoutUserId(e.target.value);setPayoutRequestId("");setPayoutAmount("");}} className={`${inputClass} mt-1.5`}>{clients.map((client)=><option key={client.id} value={client.id}>{client.name}</option>)}</select></label><div className="rounded-xl bg-[#E7FAF3] p-3"><p className="text-xs text-[#071A2D]/45">{t("Saldo disponible")}</p><p className="mt-1 text-xl font-semibold text-[#087F62]">{formatUsdt(selectedBalance.available)}</p></div><label className="text-xs font-semibold">{t("Monto a abonar")}<div className="relative mt-1.5"><input required type="number" min="0.01" max={selectedBalance.available} step="0.01" value={payoutAmount} onChange={(e)=>setPayoutAmount(e.target.value)} className={`${inputClass} pr-16`}/><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold">USDT</span></div><p className="mt-2 text-xs text-[#087F62]">{t("Saldo restante")}: {formatUsdt(Math.max(0,selectedBalance.available-(Number(payoutAmount)||0)))}</p></label><div className="rounded-xl border border-[#071A2D]/7 p-3"><div className="flex items-center gap-2 text-xs font-semibold"><WalletCards className="h-4 w-4"/>Wallet USDT</div><p className="mt-2 truncate font-mono text-xs">{selectedWallet?maskWallet(selectedWallet.address):t("Sin wallet")}</p><p className="mt-1 text-xs text-[#071A2D]/42">Ethereum · ERC-20</p><span className={`mt-2 inline-flex rounded-full px-2 py-1 text-[9px] font-semibold ${selectedWallet?.verified?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-700"}`}>{selectedWallet?.verified?t("Verificada"):t("No verificada")}</span></div>{selectedPendingRequests.length>0&&<label className="sm:col-span-2 text-xs font-semibold">{t("Solicitud asociada")}<select value={payoutRequestId} onChange={(e)=>{setPayoutRequestId(e.target.value);const request=selectedPendingRequests.find((item)=>item.id===e.target.value);if(request)setPayoutAmount(String(request.amount));}} className={`${inputClass} mt-1.5`}><option value="">{t("Sin solicitud asociada")}</option>{selectedPendingRequests.map((request)=><option key={request.id} value={request.id}>{formatUsdt(request.amount)} · {new Date(request.createdAt).toLocaleDateString(language === "en" ? "en-US" : "es-ES")}</option>)}</select></label>}<label className="sm:col-span-2 flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-[#071A2D]/12 p-6 text-center"><Upload className="h-7 w-7 text-[#0AA883]"/><b className="mt-2 text-sm">{payoutFile?.name??t("Comprobante del pago")}</b><span className="mt-1 text-xs text-[#071A2D]/42">{t("PDF, JPG o PNG · máximo 10 MB")}</span><input required type="file" accept="application/pdf,image/png,image/jpeg" className="hidden" onChange={(e:ChangeEvent<HTMLInputElement>)=>setPayoutFile(e.target.files?.[0]??null)}/></label><Button disabled={busy==="payout"||!selectedWallet?.verified||Number(payoutAmount)<=0||Number(payoutAmount)>selectedBalance.available} className="sm:col-span-2 h-12 bg-[#0AA883] text-white">{busy==="payout"?<LoaderCircle className="mr-2 h-4 w-4 animate-spin"/>:null}{t("Confirmar abono")}</Button></form></Modal>}
 
-    {documentsOperation&&<Modal onClose={()=>setDocumentsOperation(null)} width="max-w-2xl"><ModalHeader title={t("Factura y contrato")} subtitle={`${documentsOperation.reference} · ${documentsOperation.senderName}`} onClose={()=>setDocumentsOperation(null)}/><div className="p-5"><LedgerOperationDocuments operationId={documentsOperation.id} userId={documentsOperation.userId} admin/><p className="mt-4 text-xs leading-5 text-[#071A2D]/45">{t("Los documentos quedan privados y disponibles para descargar desde el panel del cliente.")}</p></div></Modal>}
+    {documentsOperation&&<Modal onClose={()=>setDocumentsOperation(null)} width="max-w-2xl"><ModalHeader title={t("Factura y contrato")} subtitle={`${documentsOperation.reference} · ${documentsOperation.senderName}`} onClose={()=>setDocumentsOperation(null)}/><div className="p-5"><LedgerOperationDocuments operationId={documentsOperation.id} userId={documentsOperation.userId} admin onChanged={loadDocumentPresence}/><p className="mt-4 text-xs leading-5 text-[#071A2D]/45">{t("Los documentos quedan privados y disponibles para descargar desde el panel del cliente.")}</p></div></Modal>}
 
     {preview&&<Modal onClose={()=>setPreview(null)} width="max-w-4xl"><ModalHeader title={preview.proof.name} subtitle={t("Comprobante privado")} onClose={()=>setPreview(null)}/><div className="h-[75vh] bg-[#EDF1EE] p-3">{preview.proof.mimeType==="application/pdf"?<iframe title={t("Comprobante")} src={preview.url} className="h-full w-full rounded-xl bg-white"/>:<img src={preview.url} alt={t("Comprobante")} className="mx-auto h-full max-w-full rounded-xl object-contain"/>}</div></Modal>}
   </>;

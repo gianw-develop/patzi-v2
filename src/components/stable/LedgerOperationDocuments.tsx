@@ -26,10 +26,12 @@ export default function LedgerOperationDocuments({
   operationId,
   userId,
   admin = false,
+  onChanged,
 }: {
   operationId: string;
   userId: string;
   admin?: boolean;
+  onChanged?: () => void;
 }) {
   const { t } = useLanguage();
   const [documents, setDocuments] = useState<StoredDocument[]>([]);
@@ -108,6 +110,7 @@ export default function LedgerOperationDocuments({
         await supabase.storage.from("stable-documents").remove([previous.storage_path]);
       }
       await refresh();
+      onChanged?.();
       toast.success(`${t(meta[type].label)} ${t("guardado correctamente.")}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("No se pudo guardar el documento."));
