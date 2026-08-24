@@ -40,6 +40,7 @@ export default function AdminPage() {
   const [search, setSearch] = useState(() => typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("search") ?? "");
   const [statusFilter, setStatusFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
+  const [documentFilter, setDocumentFilter] = useState("all");
   const [actualReceived, setActualReceived] = useState("");
   const [reconciliationEditorOpen, setReconciliationEditorOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -76,7 +77,14 @@ export default function AdminPage() {
     const matchesSearch = !needle || [item.reference, item.customerName, item.customerEmail, item.senderLegalName, item.walletAddress].some((value) => value?.toLowerCase().includes(needle));
     const matchesStatus = statusFilter === "all" || item.status === statusFilter;
     const matchesAccount = accountFilter === "all" || item.accountId === accountFilter;
-    return matchesSearch && matchesStatus && matchesAccount;
+    const hasInvoice = item.documents.some((document) => document.type === "invoice");
+    const hasContract = item.documents.some((document) => document.type === "contract");
+    const matchesDocuments = documentFilter === "all"
+      || (documentFilter === "complete" && hasInvoice && hasContract)
+      || (documentFilter === "missing" && (!hasInvoice || !hasContract))
+      || (documentFilter === "missing_invoice" && !hasInvoice)
+      || (documentFilter === "missing_contract" && !hasContract);
+    return matchesSearch && matchesStatus && matchesAccount && matchesDocuments;
   }).sort((a, b) => {
     const proofA = a.proof ? new Date(a.proof.uploadedAt).getTime() : -1;
     const proofB = b.proof ? new Date(b.proof.uploadedAt).getTime() : -1;
@@ -182,37 +190,19 @@ export default function AdminPage() {
 
   const copyCompleteData = async () => {
     if (!selected) return;
-    const account = accounts.find((item) => item.id === selected.accountId);
+    const invoiceAmount = selected.bankReceivedAmount ?? selected.usdAmount;
     const lines = [
-      `PATZI OPERATION: ${selected.reference}`,
-      `Patzi user: ${selected.customerName}`,
-      `Patzi user email: ${selected.customerEmail}`,
-      `USD sender: ${selected.senderLegalName ?? "Not registered"}`,
-      `Sender type: ${selected.senderType === "business" ? "Business" : "Individual"}`,
-      `Sender email: ${selected.senderEmail ?? "Not registered"}`,
-      `Sender phone: ${selected.senderPhone ?? "Not registered"}`,
-      `Sender bank: ${selected.senderBankName ?? "Not registered"}`,
-      `Sender account last 4: ${selected.senderAccountLast4 ?? "Not registered"}`,
-      `Amount sent: ${formatUsd(selected.usdAmount)}`,
-      `Amount received by bank: ${selected.bankReceivedAmount == null ? "Pending reconciliation" : formatUsd(selected.bankReceivedAmount)}`,
-      `Bank fee: ${selected.bankFeeAmount == null ? "Pending reconciliation" : formatUsd(selected.bankFeeAmount)}`,
-      `Patzi fee (10%): ${formatUsd(selected.feeAmount)}`,
-      `Client receives: ${selected.deliveryAmount} ${selected.asset}`,
-      `Network: Ethereum ERC-20`,
-      `Wallet: ${selected.walletAddress}`,
-      `Receiving account holder: ${account?.holder ?? "Not assigned"}`,
-      `Receiving bank: ${account?.bank ?? "Not assigned"}`,
-      `Receiving account: ${account?.accountNumber ?? "Not assigned"}`,
-      `Payment rail: ${selected.paymentRail}`,
-      `Routing: ${selected.paymentRail === "ACH" ? account?.achRoutingNumber ?? "" : account?.wireRoutingNumber ?? ""}`,
-      `Created: ${new Date(selected.createdAt).toLocaleString("en-US")}`,
+      `Nombre completo: ${selected.senderLegalName ?? "No registrado"}`,
+      `Correo: ${selected.senderEmail ?? "No registrado"}`,
+      `Teléfono: ${selected.senderPhone ?? "No registrado"}`,
+      "Dirección: No registrada",
+      `Monto: ${formatUsd(invoiceAmount)} USD`,
     ];
     await navigator.clipboard.writeText(lines.join("\n"));
     setCopiedData(true);
-    toast.success("Datos completos copiados");
+    toast.success("Datos para factura y contrato copiados");
     window.setTimeout(() => setCopiedData(false), 1800);
   };
-
   const complete = async () => {
     if (!selected || actionBusy) return;
     if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) { toast.error("Introduce un hash Ethereum válido de 66 caracteres"); return; }
@@ -281,7 +271,7 @@ export default function AdminPage() {
         <div className="mx-auto w-full max-w-[1920px] space-y-[clamp(1rem,1vw,1.75rem)]">
           <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
             <div><p className="premium-kicker text-[clamp(.7rem,.65vw,.85rem)] text-[#087F62]">Operación en vivo</p><h1 className="mt-1 text-[clamp(1.65rem,1.65vw,2.35rem)] font-semibold tracking-[-.035em]">Control de fondos y entregas</h1><p className="mt-1 text-[clamp(.75rem,.7vw,.9rem)] text-[#071A2D]/46">Actualizado ahora · todos los importes en USD</p></div>
-            <div className="flex gap-2"><label className="relative flex-1 xl:w-[clamp(360px,24vw,520px)]"><Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#071A2D]/35"/><input value={search} onChange={(event)=>setSearch(event.target.value)} className="h-12 w-full rounded-2xl border border-[#071A2D]/9 bg-white pl-12 pr-4 text-sm shadow-sm outline-none focus:border-[#2775CA] 2xl:h-14" placeholder="Referencia, cliente o wallet"/></label><button type="button" onClick={()=>{setSearch("");setStatusFilter("all");setAccountFilter("all")}} className="grid h-12 w-12 place-items-center rounded-2xl border border-[#071A2D]/9 bg-white shadow-sm 2xl:h-14 2xl:w-14" aria-label="Limpiar filtros" title="Limpiar filtros"><Filter className="h-5 w-5"/></button></div>
+            <div className="flex gap-2"><label className="relative flex-1 xl:w-[clamp(360px,24vw,520px)]"><Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#071A2D]/35"/><input value={search} onChange={(event)=>setSearch(event.target.value)} className="h-12 w-full rounded-2xl border border-[#071A2D]/9 bg-white pl-12 pr-4 text-sm shadow-sm outline-none focus:border-[#2775CA] 2xl:h-14" placeholder="Referencia, cliente o wallet"/></label><button type="button" onClick={()=>{setSearch("");setStatusFilter("all");setAccountFilter("all");setDocumentFilter("all")}} className="grid h-12 w-12 place-items-center rounded-2xl border border-[#071A2D]/9 bg-white shadow-sm 2xl:h-14 2xl:w-14" aria-label="Limpiar filtros" title="Limpiar filtros"><Filter className="h-5 w-5"/></button></div>
           </div>
 
           <section className="premium-card overflow-hidden rounded-[clamp(1.5rem,1.5vw,2rem)] p-[clamp(1rem,1.4vw,1.75rem)]">
@@ -308,8 +298,35 @@ export default function AdminPage() {
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_500px]">
             <main className="min-w-0 space-y-4">
               <section className="premium-card overflow-hidden rounded-[1.6rem]">
-                <div className="relative z-10 flex flex-col justify-between gap-3 border-b border-[#071A2D]/8 p-5 sm:flex-row sm:items-center"><div><h2 className="text-base font-semibold">Pagos Stable</h2><p className="mt-1 flex items-center gap-2 text-xs font-medium text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#4DE2B5]"/>Más recientes arriba</p></div><div className="flex flex-wrap gap-2"><select aria-label="Filtrar por estado" value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los estados</option>{Object.entries(STABLE_STATUS).map(([value,info])=><option key={value} value={value}>{info.label}</option>)}</select><select aria-label="Filtrar por cuenta" value={accountFilter} onChange={(event)=>setAccountFilter(event.target.value)} className="max-w-[220px] rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todas las cuentas</option>{accounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select></div></div>
-                <div className="relative z-10 overflow-x-auto"><table className="w-full min-w-[860px] text-left text-sm"><thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Fecha","Referencia","Usuario Patzi / Remitente","Cuenta","Estado","Decisión"].map((heading)=><th key={heading} className="px-4 py-3 font-semibold">{heading}</th>)}</tr></thead><tbody>{filteredOperations.map((item)=>{const account=accounts.find((entry)=>entry.id===item.accountId);const canReview=Boolean(item.proof&&(["proof_submitted","verifying"].includes(item.status)||(item.status==="payment_received"&&item.bankReceivedAmount==null)));const approved=Boolean(item.bankReceivedAmount!=null&&verifiedStatuses.includes(item.status));return <tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-colors ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}><td className="whitespace-nowrap px-4 py-4"><p className="text-xs font-semibold">{formatExactDate(item.proof?.uploadedAt??item.createdAt)}</p><p className="mt-1 text-10px text-[#071A2D]/40">{item.proof?"Comprobante cargado":"Operación creada"}</p></td><td className="px-4 py-4 font-semibold">{item.reference}</td><td className="px-4 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[190px] truncate text-11px text-[#087F62]">{item.senderLegalName??"Sin remitente"}</p></td><td className="px-4 py-4"><p className="max-w-[190px] truncate font-medium">{account?.holder??"Cuenta no disponible"}</p><p className="mt-1 text-10px text-[#071A2D]/42">{account?.label??"—"} · {item.paymentRail}</p></td><td className="px-4 py-4"><StatusBadge status={item.status}/></td><td className="px-4 py-4" onClick={(event)=>event.stopPropagation()}>{canReview?<div className="flex items-center gap-2"><Button onClick={()=>openDecision(item,"approve")} disabled={Boolean(actionBusy)} className="h-9 bg-[#071A2D] px-3 text-11px font-semibold text-white shadow-sm hover:bg-[#0B263D]">Aprobar</Button><Button onClick={()=>openDecision(item,"reject")} disabled={Boolean(actionBusy)} variant="outline" className="h-9 border-[#D9563E]/20 px-3 text-11px font-semibold text-[#D9563E]">No aprobar</Button></div>:approved?<span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#087F62]"><CheckCircle2 className="h-4 w-4"/>Aprobado</span>:item.status==="correction_requested"?<span className="text-xs font-semibold text-[#D9563E]">No aprobado</span>:<button type="button" onClick={()=>setSelectedId(item.id)} className="text-xs font-semibold text-[#071A2D]/45">Ver detalle</button>}</td></tr>})}</tbody></table></div>
+                <div className="relative z-10 flex flex-col justify-between gap-3 border-b border-[#071A2D]/8 p-5 lg:flex-row lg:items-center">
+                  <div><h2 className="text-base font-semibold">Pagos Stable</h2><p className="mt-1 flex items-center gap-2 text-xs font-medium text-[#087F62]"><span className="h-2 w-2 rounded-full bg-[#4DE2B5]"/>Más recientes arriba</p></div>
+                  <div className="grid w-full gap-2 sm:grid-cols-3 lg:w-auto">
+                    <select aria-label="Filtrar por estado" value={statusFilter} onChange={(event)=>setStatusFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los estados</option>{Object.entries(STABLE_STATUS).map(([value,info])=><option key={value} value={value}>{info.label}</option>)}</select>
+                    <select aria-label="Filtrar por cuenta" value={accountFilter} onChange={(event)=>setAccountFilter(event.target.value)} className="max-w-[240px] rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todas las cuentas</option>{accounts.map((item)=><option key={item.id} value={item.id}>{item.holder} · {item.label}</option>)}</select>
+                    <select aria-label="Filtrar por documentos" value={documentFilter} onChange={(event)=>setDocumentFilter(event.target.value)} className="rounded-lg border border-[#071A2D]/9 bg-white px-3 py-2 text-xs font-medium shadow-sm"><option value="all">Todos los documentos</option><option value="complete">Factura y contrato cargados</option><option value="missing">Falta algún documento</option><option value="missing_invoice">Falta factura</option><option value="missing_contract">Falta contrato</option></select>
+                  </div>
+                </div>
+                <div className="relative z-10 overflow-x-auto">
+                  <table className="w-full min-w-[1180px] text-left text-sm">
+                    <thead className="bg-[#F6F9F6] text-10px uppercase tracking-[.11em] text-[#071A2D]/38"><tr>{["Fecha","Referencia","Usuario Patzi / Remitente","Monto","Cuenta","Documentos","Estado","Decisión"].map((heading)=><th key={heading} className="px-4 py-3 font-semibold">{heading}</th>)}</tr></thead>
+                    <tbody>{filteredOperations.map((item)=>{
+                      const account=accounts.find((entry)=>entry.id===item.accountId);
+                      const canReview=Boolean(item.proof&&(["proof_submitted","verifying"].includes(item.status)||(item.status==="payment_received"&&item.bankReceivedAmount==null)));
+                      const approved=Boolean(item.bankReceivedAmount!=null&&verifiedStatuses.includes(item.status));
+                      const hasInvoice=item.documents.some((document)=>document.type==="invoice");
+                      const hasContract=item.documents.some((document)=>document.type==="contract");
+                      return <tr key={item.id} onClick={()=>setSelectedId(item.id)} className={`cursor-pointer border-t border-[#071A2D]/6 transition-colors ${selected?.id===item.id?"bg-[#E9F8F2] shadow-[inset_4px_0_0_#0AA883]":"hover:bg-[#F7FAF8]"}`}>
+                        <td className="whitespace-nowrap px-4 py-4"><p className="text-xs font-semibold">{formatExactDate(item.proof?.uploadedAt??item.createdAt)}</p><p className="mt-1 text-10px text-[#071A2D]/40">{item.proof?"Comprobante cargado":"Operación creada"}</p></td>
+                        <td className="px-4 py-4 font-semibold">{item.reference}</td>
+                        <td className="px-4 py-4"><p className="font-semibold">{item.customerName}</p><p className="mt-1 max-w-[190px] truncate text-11px text-[#087F62]">{item.senderLegalName??"Sin remitente"}</p></td>
+                        <td className="whitespace-nowrap px-4 py-4"><p className="font-semibold">{formatUsd(item.usdAmount)}</p><p className={`mt-1 text-10px ${item.bankReceivedAmount==null?"text-amber-600":"text-[#087F62]"}`}>{item.bankReceivedAmount==null?"Banco pendiente":`Banco: ${formatUsd(item.bankReceivedAmount)}`}</p></td>
+                        <td className="px-4 py-4"><p className="max-w-[190px] truncate font-medium">{account?.holder??"Cuenta no disponible"}</p><p className="mt-1 text-10px text-[#071A2D]/42">{account?.label??"—"} · {item.paymentRail}</p></td>
+                        <td className="px-4 py-4" onClick={(event)=>event.stopPropagation()}><button type="button" onClick={()=>{setSelectedId(item.id);setTab("files")}} className="flex min-w-[132px] flex-col items-start gap-1.5" title="Abrir factura y contrato"><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-semibold ${hasInvoice?"bg-[#E7FAF3] text-[#087F62]":"bg-[#FFF4D8] text-[#A46600]"}`}><span className={`h-1.5 w-1.5 rounded-full ${hasInvoice?"bg-[#0AA883]":"bg-amber-500"}`}/>Factura {hasInvoice?"cargada":"pendiente"}</span><span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-semibold ${hasContract?"bg-[#E7FAF3] text-[#087F62]":"bg-[#FFF4D8] text-[#A46600]"}`}><span className={`h-1.5 w-1.5 rounded-full ${hasContract?"bg-[#0AA883]":"bg-amber-500"}`}/>Contrato {hasContract?"cargado":"pendiente"}</span></button></td>
+                        <td className="px-4 py-4"><StatusBadge status={item.status}/></td>
+                        <td className="px-4 py-4" onClick={(event)=>event.stopPropagation()}>{canReview?<div className="flex items-center gap-2"><Button onClick={()=>openDecision(item,"approve")} disabled={Boolean(actionBusy)} className="h-9 bg-[#071A2D] px-3 text-11px font-semibold text-white shadow-sm hover:bg-[#0B263D]">Aprobar</Button><Button onClick={()=>openDecision(item,"reject")} disabled={Boolean(actionBusy)} variant="outline" className="h-9 border-[#D9563E]/20 px-3 text-11px font-semibold text-[#D9563E]">No aprobar</Button></div>:approved?<span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#087F62]"><CheckCircle2 className="h-4 w-4"/>Aprobado</span>:item.status==="correction_requested"?<span className="text-xs font-semibold text-[#D9563E]">No aprobado</span>:<button type="button" onClick={()=>setSelectedId(item.id)} className="text-xs font-semibold text-[#071A2D]/45">Ver detalle</button>}</td>
+                      </tr>})}</tbody>
+                  </table>
+                </div>
                 <div className="relative z-10 border-t border-[#071A2D]/8 p-3 text-xs text-[#071A2D]/40">{filteredOperations.length} operaciones · ordenadas por comprobante más reciente</div>
               </section>
 
@@ -324,7 +341,7 @@ export default function AdminPage() {
               <div className="relative z-10 mt-4 rounded-2xl border border-[#0AA883]/18 bg-[#E7FAF3]/55 p-4">
                 <div className="flex items-start justify-between gap-3"><div><p className="premium-kicker text-[#087F62]">Titular que envía los USD</p><p className="mt-2 text-base font-semibold">{selected.senderLegalName ?? "Remitente no registrado"}</p><p className="mt-1 text-xs text-[#071A2D]/55">{selected.senderType === "business" ? "Empresa" : "Persona"}</p></div><span className={`rounded-full px-2.5 py-1 text-11px font-semibold ${senderIdentityValid ? "bg-white text-[#087F62]" : "bg-[#FFF0EC] text-[#D9563E]"}`}>{senderIdentityValid ? "Identidad completa" : "Datos pendientes"}</span></div>
                 <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2"><div className="rounded-xl bg-white/70 p-3"><span className="text-[#071A2D]/40">Correo del remitente</span><p className="mt-1 break-all font-medium">{selected.senderEmail ?? "Sin correo"}</p></div><div className="rounded-xl bg-white/70 p-3"><span className="text-[#071A2D]/40">Teléfono</span><p className="mt-1 font-medium">{selected.senderPhone ?? "Sin teléfono"}</p></div><div className="rounded-xl bg-white/70 p-3"><span className="text-[#071A2D]/40">Banco de origen</span><p className="mt-1 font-medium">{selected.senderBankName ?? "No registrado"}</p></div><div className="rounded-xl bg-white/70 p-3"><span className="text-[#071A2D]/40">Cuenta de origen</span><p className="mt-1 font-medium">{selected.senderAccountLast4 ? `Terminada en ${selected.senderAccountLast4}` : "No registrada"}</p></div></div>
-                <button type="button" onClick={()=>void copyCompleteData()} className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#0AA883]/25 bg-white text-xs font-semibold text-[#087F62] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:scale-[.98] motion-reduce:transform-none"><ClipboardCheck className={`h-4 w-4 transition-transform ${copiedData?"scale-110":""}`}/>{copiedData?"Datos copiados":"Copiar datos completos para factura y contrato"}</button>
+                <button type="button" onClick={()=>void copyCompleteData()} className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#0AA883]/25 bg-white text-xs font-semibold text-[#087F62] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:scale-[.98] motion-reduce:transform-none"><ClipboardCheck className={`h-4 w-4 transition-transform ${copiedData?"scale-110":""}`}/>{copiedData?"Datos copiados":"Copiar datos para factura y contrato"}</button>
               </div>
               <div className="relative z-10 mt-4 rounded-xl border border-[#071A2D]/6 bg-[#F3F7F4] p-3">
                 <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-4">
