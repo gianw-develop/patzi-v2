@@ -22,7 +22,11 @@ const SEND_OPTIONS: Array<{ currency: Currency; country: FlagCountry; label: str
 const RECEIVE_OPTIONS: Array<{ currency: Currency; country: FlagCountry; label: string }> = [
   { currency: "VES", country: "VE", label: "Venezuela" },
   { currency: "PEN", country: "PE", label: "Perú" },
+  { currency: "USD", country: "US", label: "EE. UU." },
+  { currency: "EUR", country: "ES", label: "España" },
 ];
+
+const FEATURED_RECEIVE_OPTIONS = RECEIVE_OPTIONS.filter(({ currency }) => currency === "VES" || currency === "PEN");
 
 function parseAmountInput(value: string) {
   const compact = value.trim().replace(/\s/g, "");
@@ -243,6 +247,24 @@ export default function RemittanceExperience() {
     setSendAmount(formatAmountInput(requiredSend));
   };
 
+  const handleSendCurrencyChange = (currency: Currency) => {
+    if (currency === receiveCurrency) {
+      const reversePair = `${currency}-${sendCurrency}`;
+      if (activePairs.includes(reversePair)) setReceiveCurrency(sendCurrency);
+    }
+    setSendCurrency(currency);
+  };
+
+  const canSwapCurrencies = SEND_OPTIONS.some((option) => option.currency === receiveCurrency)
+    && activePairs.includes(`${receiveCurrency}-${sendCurrency}`);
+
+  const swapCurrencies = () => {
+    if (!canSwapCurrencies) return;
+    setSendCurrency(receiveCurrency);
+    setReceiveCurrency(sendCurrency);
+    setEditingField(null);
+  };
+
   const sendOption = SEND_OPTIONS.find((option) => option.currency === sendCurrency) ?? SEND_OPTIONS[0];
   const receiveOption = RECEIVE_OPTIONS.find((option) => option.currency === receiveCurrency) ?? RECEIVE_OPTIONS[0];
   const isAvailable = !rateError && activePairs.includes(pair);
@@ -263,7 +285,7 @@ export default function RemittanceExperience() {
           </p>
 
           <div className="mt-8 space-y-3">
-            {RECEIVE_OPTIONS.map((destination) => {
+            {FEATURED_RECEIVE_OPTIONS.map((destination) => {
               const corridorPair = `EUR-${destination.currency}`;
               const selected = sendCurrency === "EUR" && receiveCurrency === destination.currency;
               const available = activePairs.includes(corridorPair);
@@ -315,9 +337,17 @@ export default function RemittanceExperience() {
                 <label htmlFor="remittance-send" className="text-[11px] font-medium text-[#071A2D]/48">{t("Tú envías")}</label>
                 <div className="mt-3 flex items-center gap-3">
                   <input id="remittance-send" type="text" inputMode="decimal" value={sendAmount} onFocus={() => setEditingField("send")} onBlur={() => setEditingField(null)} onChange={(event) => setSendAmount(event.target.value)} className="min-w-0 flex-1 bg-transparent text-[2rem] font-semibold tracking-[-.055em] outline-none sm:text-[2.7rem]" aria-label={t("Monto que envías")} autoComplete="off" />
-                  <CurrencySelect options={SEND_OPTIONS} value={sendCurrency} onChange={setSendCurrency} activePairs={activePairs} counterpart={receiveCurrency} sending />
+                  <CurrencySelect options={SEND_OPTIONS} value={sendCurrency} onChange={handleSendCurrencyChange} activePairs={activePairs} counterpart={receiveCurrency} sending />
                 </div>
               </div>
+
+              {canSwapCurrencies && (
+                <div className="relative z-40 flex h-0 justify-center">
+                  <button type="button" onClick={swapCurrencies} aria-label={t("Cambiar sentido de conversión")} title={t("Cambiar sentido de conversión")} className="grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full border border-[#071A2D]/10 bg-white text-[#071A2D] shadow-[0_10px_24px_rgba(7,26,45,.12)] transition-all hover:-translate-y-[55%] hover:border-[#4DE2B5] hover:text-[#087F62] active:scale-95">
+                    <ArrowDownUp className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
 
               <div className="rounded-2xl border border-[#4DE2B5]/38 bg-[#EDFCF7] p-4 shadow-[inset_0_1px_0_white] sm:p-5">
                 <div className="flex items-center justify-between gap-3">

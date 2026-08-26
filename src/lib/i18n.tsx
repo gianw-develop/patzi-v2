@@ -540,6 +540,7 @@ const english: Record<string, string> = {
   "Corrección requerida": "Correction required",
   "Bloqueada": "Blocked",
   "Esta cuenta alcanzó su límite semanal. Selecciona otra cuenta.": "This account has reached its weekly limit. Select another account.",
+  "Cambiar sentido de conversión": "Reverse conversion direction",
 };
 
 type LanguageContextValue = {
