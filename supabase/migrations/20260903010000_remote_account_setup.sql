@@ -1,0 +1,2 @@
+-- Applied directly to the Patzi project.
+-- Sensitive receiving-account values intentionally remain only in Supabase.
