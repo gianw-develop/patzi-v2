@@ -51,11 +51,13 @@ export interface LedgerAccount {
   bank: string;
   holder: string;
   accountNumber: string;
+  swift: string;
   achEnabled: boolean;
   achRouting: string;
   wireEnabled: boolean;
   wireRouting: string;
   accountType: string;
+  instructions: string;
   weeklyAvailable: number;
   utilization: number;
   available: boolean;
@@ -147,11 +149,13 @@ interface DbAccount {
   method_name: string;
   account_holder: string;
   account_number: string | null;
+  swift: string | null;
   ach_enabled: boolean;
   ach_routing_number: string | null;
   wire_enabled: boolean;
   wire_routing_number: string | null;
   account_type: string | null;
+  instructions: string | null;
   weekly_available: number | string;
   utilization_percent: number | string;
   capacity_available: boolean;
@@ -259,11 +263,13 @@ function mapAccount(row: DbAccount): LedgerAccount {
     bank: row.bank_name ?? row.method_name,
     holder: row.account_holder,
     accountNumber: row.account_number ?? "",
+    swift: row.swift ?? "",
     achEnabled: row.ach_enabled,
     achRouting: row.ach_routing_number ?? "",
     wireEnabled: row.wire_enabled,
     wireRouting: row.wire_routing_number ?? "",
     accountType: row.account_type ?? "Checking",
+    instructions: row.instructions ?? "",
     weeklyAvailable: Number(row.weekly_available),
     utilization: Number(row.utilization_percent),
     available: row.capacity_available,

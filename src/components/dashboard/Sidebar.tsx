@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CircleHelp, ContactRound, FileText, History, LogOut, Send, Settings, UserRound, Users } from "lucide-react";
+import { CircleHelp, ContactRound, FileText, History, Landmark, LogOut, Send, Settings, UserRound, Users } from "lucide-react";
 import { toast } from "sonner";
 import PathlineLogo from "@/components/brand/PathlineLogo";
 import { cn } from "@/lib/utils";
@@ -27,7 +27,12 @@ export default function Sidebar() {
   const { isOpen, close } = useSidebarStore();
   const { full_name, email, stable_eligible, clearUser } = useUserStore();
   const visibleNavItems = stable_eligible
-    ? [...navItems.slice(0, 3), { href: "/dashboard/senders", label: "Remitentes USD", icon: ContactRound }, ...navItems.slice(3)]
+    ? [
+        ...navItems.slice(0, 3),
+        { href: "/dashboard/receiving-accounts", label: "Cuentas receptoras", icon: Landmark },
+        { href: "/dashboard/senders", label: "Remitentes USD", icon: ContactRound },
+        ...navItems.slice(3),
+      ]
     : navItems;
 
   const logout = async () => {
