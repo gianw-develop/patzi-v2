@@ -2,9 +2,10 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   ArrowRight, FileCheck2, FileText,
-  LoaderCircle, Plus, ShieldCheck, Upload, WalletCards, X,
+  Landmark, LoaderCircle, Plus, ShieldCheck, Upload, WalletCards, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import Header from "@/components/dashboard/Header";
@@ -192,7 +193,7 @@ export default function StableLedgerExperience() {
             </article>
           </section>
 
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><p className="premium-kicker text-[#087F62]">{t("Depósitos USD")}</p><h2 className="mt-1 text-2xl font-semibold">{t("Depósitos recientes")}</h2></div><Button onClick={() => setDepositOpen(true)} className="h-11 bg-[#0AA883] text-white"><Plus className="mr-2 h-4 w-4" />{t("Registrar depósito")}</Button></div>
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><p className="premium-kicker text-[#087F62]">{t("Depósitos USD")}</p><h2 className="mt-1 text-2xl font-semibold">{t("Depósitos recientes")}</h2></div><div className="flex flex-col gap-2 sm:flex-row"><Link href="/dashboard/receiving-accounts"><Button variant="outline" className="h-11 w-full border-[#0AA883]/30 bg-white text-[#087F62] sm:w-auto"><Landmark className="mr-2 h-4 w-4" />{t("Ver cuentas receptoras")}</Button></Link><Button onClick={() => setDepositOpen(true)} className="h-11 bg-[#0AA883] text-white"><Plus className="mr-2 h-4 w-4" />{t("Registrar depósito")}</Button></div></div>
 
           <section className="overflow-hidden rounded-[1.6rem] border border-[#071A2D]/7 bg-white shadow-[0_18px_45px_rgba(7,26,45,.06)]">
             <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left"><thead className="bg-[#F7F9F7] text-[10px] uppercase tracking-[.12em] text-[#071A2D]/42"><tr>{["Fecha","Quién envía","USD depositado","Cuenta receptora Patzi","Comprobante","Estado","Documentos"].map((heading)=><th key={heading} className="px-5 py-3 font-semibold">{t(heading)}</th>)}</tr></thead><tbody>

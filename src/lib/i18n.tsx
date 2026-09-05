@@ -187,6 +187,7 @@ const english: Record<string, string> = {
   "No hay cuentas receptoras disponibles en este momento.": "No receiving accounts are available right now.",
   "¿Ya enviaste el dinero? Registra el depósito y carga el comprobante.": "Already sent the money? Register the deposit and upload the receipt.",
   "Ir a depósitos": "Go to deposits",
+  "Ver cuentas receptoras": "View receiving accounts",
   "Tasas y comisiones": "Rates and fees",
   "Comprobantes": "Receipts",
   "Verificación KYC": "KYC verification",
